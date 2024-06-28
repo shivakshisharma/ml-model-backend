@@ -4,7 +4,7 @@ import pickle
 import numpy as np
 
 def load_model():
-    with open('path/to/your_model.pkl', 'rb') as f:
+    with open( '../pickle_file/model_1yr.pkl','rb') as f:
         model = pickle.load(f)
     return model
 

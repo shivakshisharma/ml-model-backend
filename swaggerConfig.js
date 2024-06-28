@@ -1,4 +1,3 @@
-// swaggerConfig.js
 const swaggerJsDoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
 
@@ -12,11 +11,11 @@ const swaggerOptions = {
     },
     servers: [
       {
-        url: 'http://localhost:5000/api'
+        url: 'http://localhost:5000'
       }
     ]
   },
-  apis: ['./routes/*.js', './models/*.js'] // Adjust the paths as necessary
+  apis: ['routes/*.js'], // Adjust the path to where your route definitions are
 };
 
 const swaggerDocs = swaggerJsDoc(swaggerOptions);
