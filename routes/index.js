@@ -246,56 +246,35 @@ router.post('/predict', (req, res) => {
   pythonProcess.stdout.on('data', async (data) => {
     const prediction = data.toString().trim();
 
-    // Insert the features and prediction into the database
+    // Retrieve column names from the database
     try {
-      const query = `
-      INSERT INTO SinterRDI (
-        [5mm], 
-        Mean_size_raw_mix_wet, 
-        [+40mm_of_product_sinter], 
-        FeO, 
-        MgO, 
-        CI_of_Coal, 
-        [CI of Lime (range 85-90)], 
-        CI_of_Dolomite, 
-        Basicity, 
-        [Al2O3/SiO2], 
-        Main_Fan_Speed_RPM, 
-        BTP, 
-        CaO, 
-        Balling_Index, 
-        FC_temp, 
-        MC_speed, 
-        RDI_value
-      ) 
-      VALUES (
-        @Feature1, 
-        @Feature2, 
-        @Feature3, 
-        @Feature4, 
-        @Feature5, 
-        @Feature6, 
-        @Feature7, 
-        @Feature8, 
-        @Feature9, 
-        @Feature10, 
-        @Feature11, 
-        @Feature12, 
-        @Feature13, 
-        @Feature14, 
-        @Feature15, 
-        @Feature16, 
-        @RDI_value
-      )
-    `;
-
       const request = new sql.Request();
-      features.forEach((feature, index) => {
-        request.input(`Feature${index + 1}`, sql.Float, feature);
-      });
-      request.input('RDI_value', sql.Float, parseFloat(prediction));
+      const result = await request.query(`
+        SELECT COLUMN_NAME 
+        FROM INFORMATION_SCHEMA.COLUMNS 
+        WHERE TABLE_NAME = 'SinterRDI' 
+        AND TABLE_SCHEMA = 'dbo'
+      `);
 
-      await request.query(query);
+      const columns = result.recordset.map(record => record.COLUMN_NAME).filter(name => name !== 'ID');
+      
+      
+      if (columns.length !== 17) {
+        throw new Error('The number of columns retrieved from the database does not match the expected number of features plus the RDI value.');
+      }
+
+      const query = `
+        INSERT INTO Sinter_RDI.dbo.SinterRDI (${columns.join(', ')})
+        VALUES (${columns.map((col, index) => `@Feature${index + 1}`).join(', ')})
+      `;
+
+      const insertRequest = new sql.Request();
+      features.forEach((feature, index) => {
+        insertRequest.input(`Feature${index + 1}`, sql.Float, feature);
+      });
+      insertRequest.input(`Feature${columns.length}`, sql.Float, parseFloat(prediction));
+
+      await insertRequest.query(query);
 
       res.json({ prediction });
     } catch (err) {
