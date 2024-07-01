@@ -221,8 +221,11 @@
 const express = require('express');
 const sql = require('mssql');
 const { spawn } = require('child_process');
+const multer = require('multer');
+const xlsx = require('xlsx'); // For handling Excel files
 const router = express.Router();
 const dbConfig = require('../config/db.config');
+
 
 // Connect to the database
 sql.connect(dbConfig, (err) => {
@@ -232,6 +235,55 @@ sql.connect(dbConfig, (err) => {
   }
   console.log('Connected to the database.');
 });
+
+
+// Configure multer for file upload
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, '/Sinter RDI project files/ml-model-backend/uploads'); // Destination folder for uploaded files
+  },
+  filename: function (req, file, cb) {
+    cb(null, file.originalname); // Keep original file name
+  }
+});
+
+const upload = multer({ storage: storage });
+
+// Root route
+router.get('/', (req, res) => {
+  res.send('Welcome to the Sinter RDI API!');
+});
+
+router.post('/upload', upload.single('file'), async (req, res) => {
+  const filePath = req.file.path;
+
+  try {
+    // Read Excel file
+    const workbook = xlsx.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(worksheet);
+
+    // Insert data into database
+    await Promise.all(data.map(async (row) => {
+      const keys = Object.keys(row).join(', ');
+      const values = Object.values(row).map(value => typeof value === 'string' ? `'${value}'` : value).join(', ');
+
+      const query = `
+        INSERT INTO Sinter_RDI.dbo.SinterRDI (${keys})
+        VALUES (${values})
+      `;
+      
+      await sql.query(query);
+    }));
+
+    res.status(200).send('Data inserted successfully');
+  } catch (error) {
+    console.error('Error processing file and inserting into database:', error);
+    res.status(500).json({ error: 'Failed to process file and insert data into database.' });
+  }
+});
+
 
 router.post('/predict', (req, res) => {
   const features = req.body.features;
