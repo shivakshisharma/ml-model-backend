@@ -284,67 +284,103 @@ router.post('/upload', upload.single('file'), async (req, res) => {
   }
 });
 
-
-router.post('/predict', (req, res) => {
-  const features = req.body.features;
-
-  // Ensure that features are provided and have the correct length
-  if (!features || features.length !== 16) {
-    return res.status(400).json({ error: 'Invalid features array. Must contain exactly 16 elements.' });
-  }
-
-  const pythonProcess = spawn('python', ['/Sinter RDI project files/ml-model-backend/scripts/predict.py', JSON.stringify(features)]);
-
-  pythonProcess.stdout.on('data', async (data) => {
-    const prediction = data.toString().trim();
-
-    // Retrieve column names from the database
-    try {
-      const request = new sql.Request();
-      const result = await request.query(`
-        SELECT COLUMN_NAME 
-        FROM INFORMATION_SCHEMA.COLUMNS 
-        WHERE TABLE_NAME = 'SinterRDI' 
-        AND TABLE_SCHEMA = 'dbo'
-      `);
-
-      const columns = result.recordset.map(record => record.COLUMN_NAME).filter(name => name !== 'ID');
+// Prediction endpoint
+router.post('/predict', async (req, res) => {
+  try {
+    // Fetch the latest row from the database based on Timestamp
+    const result = await sql.query(`
+      SELECT TOP 1 *
+      FROM SinterRDI
+      ORDER BY CreatedAt DESC
+    `);
+    const latestData = result.recordset[0];
+   
+    // Extract features for prediction
+    const features = [
+      latestData['Size5mm'],
+      latestData['MeanSizeRawMixWet'],
+      latestData['ProductSinterAbove40mm'],
+      latestData['FeO'],
+      latestData['MgO'],
+      latestData['CoalCI'],
+      latestData['LimeCI'],
+      latestData['DolomiteCI'],
+      latestData['Basicity'],
+      latestData['Al2O3_SiO2_Ratio'],
+      latestData['MainFanSpeedRPM'],
+      latestData['BTP'],
+      latestData['CaO'],
+      latestData['BallingIndex'],
+      latestData['FCTemp'],
+      latestData['MCSpeed'],
       
-      
-      if (columns.length !== 17) {
-        throw new Error('The number of columns retrieved from the database does not match the expected number of features plus the RDI value.');
-      }
 
-      const query = `
-        INSERT INTO Sinter_RDI.dbo.SinterRDI (${columns.join(', ')})
-        VALUES (${columns.map((col, index) => `@Feature${index + 1}`).join(', ')})
-      `;
+    ];
 
-      const insertRequest = new sql.Request();
-      features.forEach((feature, index) => {
-        insertRequest.input(`Feature${index + 1}`, sql.Float, feature);
+    // Spawn a child process to run the Python script
+    console.log(JSON.stringify(features));
+    try{
+      const pythonProcess = spawn('python', ['/Sinter RDI project files/ml-model-backend/scripts/predict.py', JSON.stringify(features)]);
+
+  
+    
+     
+    let dataString = '';
+
+    pythonProcess.stdout.on('data', (data) => {
+      dataString += data.toString();
+      pythonProcess.stderr.on('data', (data) => {
+        console.error(`stderr: ${data}`);
       });
-      insertRequest.input(`Feature${columns.length}`, sql.Float, parseFloat(prediction));
 
-      await insertRequest.query(query);
+      
+      
+      const prediction = JSON.parse(dataString);
+      console.log(prediction);
+       
+      
+    });
 
-      res.json({ prediction });
-    } catch (err) {
-      console.error('Database insertion failed:', err);
-      res.status(500).json({ error: 'Failed to insert data into database.' });
-    }
-  });
+  }
+  catch(e){
+    console.log(e,"error in prediction file hihihih");
 
-  pythonProcess.stderr.on('data', (data) => {
-    console.error(`stderr: ${data}`);
-    res.status(500).json({ error: 'Error executing prediction script' });
-  });
+  }
+    // pythonProcess.stderr.on('data', (data) => {
+    //   console.error(`stderr: ${data}`);
+    // });
 
-  pythonProcess.on('close', (code) => {
-    if (code !== 0) {
-      console.error(`Python process exited with code ${code}`);
-    }
-  });
+    // pythonProcess.on('close', async (code) => {
+    //   if (code !== 0) {
+        
+    //     res.status(500).json({ error: 'Error in Python script execution.' });
+    //     return;
+    //   }
+
+    //   try {
+    //     const prediction = JSON.parse(dataString);
+    //      console.log(prediction);
+    //     // Update the latest row with the predicted RDI value
+    //     const updateQuery = `
+    //       UPDATE SinterRDI
+    //       SET RDIValue = ${prediction}
+    //       WHERE CreatedAt = '${latestData.Timestamp.toISOString()}'
+    //     `;
+
+    //     await sql.query(updateQuery);
+
+    //     res.status(200).json({ prediction });
+    //   } catch (error) {
+    //     console.error('Error updating prediction in database:', error);
+    //     res.status(500).json({ error: 'Failed to update prediction in database.' });
+    //   }
+    // });
+  } 
+
+  catch (error) {
+    console.error('Error fetching latest data:', error);
+    res.status(500).json({ error: 'Failed to fetch latest data.' });
+  }
 });
 
 module.exports = router;
