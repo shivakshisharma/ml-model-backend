@@ -3,13 +3,15 @@ import json
 import pickle
 import numpy as np
 import logging
+from sklearn.tree import DecisionTreeRegressor
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def load_model():
     try:
-        with open('/Sinter RDI project files/ml-model-backend/pickle_file/model_1yr.pkl', 'rb') as f:
+        with open('/Sinter RDI project files/ml-model-backend/pickle_file/model_1yr_new.pkl', 'rb') as f:
             model = pickle.load(f)
             logging.info("Model loaded successfully")
         return model
@@ -60,5 +62,11 @@ if __name__ == '__main__':
         print(json.dumps(model))
         sys.exit(1)
     
+    train_features = ['-5mm', 'mean size Raw mix wet', '+40mm', 'FeO', 'MgO',
+       'CI of coal \n85-90', 'CI of Lime\n85-90', 'CI of Dolomite\n85-90',
+       'Basicity', 'Al2O3/SiO2', 'Main Fan Speed RPM', 'avg BTP\n400-450',
+       'CaO', 'Balling Index\n1.55+', 'avg  F/C temp\n1150-1200',
+       'M/C speed m/min']
+
     prediction = predict(model, features)
     print(json.dumps(prediction))

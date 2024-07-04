@@ -225,8 +225,7 @@ const multer = require('multer');
 const xlsx = require('xlsx'); // For handling Excel files
 const router = express.Router();
 const dbConfig = require('../config/db.config');
-
-
+const { Parser } = require('json2csv');
 // Connect to the database
 sql.connect(dbConfig, (err) => {
   if (err) {
@@ -252,6 +251,30 @@ const upload = multer({ storage: storage });
 // Root route
 router.get('/', (req, res) => {
   res.send('Welcome to the Sinter RDI API!');
+});
+
+router.get('/download', async (req, res) => {
+  try {
+   
+    // Fetch the data from the last 24 hours
+    const result = await sql.query(`
+      SELECT *
+      FROM SinterRDI
+      WHERE CreatedAt >= DATEADD(day, -1, GETDATE())
+    `);
+
+    // Convert the result to CSV format
+    const json2csvParser = new Parser();
+    const csv = json2csvParser.parse(result.recordset);
+
+    // Send the CSV file as a response
+    res.header('Content-Type', 'text/csv');
+    res.attachment('previous_results.csv');
+    res.send(csv);
+  } catch (error) {
+    console.error('Error fetching data:', error);
+    res.status(500).json({ error: 'Failed to fetch data' });
+  }
 });
 
 router.post('/upload', upload.single('file'), async (req, res) => {
@@ -319,8 +342,8 @@ router.post('/predict', async (req, res) => {
 
     // Spawn a child process to run the Python script
     console.log(JSON.stringify(features));
-    try{
-      const pythonProcess = spawn('python', ['/Sinter RDI project files/ml-model-backend/scripts/predict.py', JSON.stringify(features)]);
+    
+    const pythonProcess = spawn('python', ['/Sinter RDI project files/ml-model-backend/scripts/predict.py', JSON.stringify(features)]);
 
   
     
@@ -334,47 +357,55 @@ router.post('/predict', async (req, res) => {
       });
 
       
-      
-      const prediction = JSON.parse(dataString);
-      console.log(prediction);
        
       
     });
 
-  }
-  catch(e){
-    console.log(e,"error in prediction file hihihih");
+    pythonProcess.stderr.on('data', (data) => {
+      console.error(`stderr: ${data}`);
+    });
 
-  }
-    // pythonProcess.stderr.on('data', (data) => {
-    //   console.error(`stderr: ${data}`);
-    // });
-
-    // pythonProcess.on('close', async (code) => {
-    //   if (code !== 0) {
+    pythonProcess.on('close', async (code) => {
+      if (code !== 0) {
         
-    //     res.status(500).json({ error: 'Error in Python script execution.' });
-    //     return;
-    //   }
+        res.status(500).json({ error: 'Error in Python script execution.' });
+        return;
+      }
 
-    //   try {
-    //     const prediction = JSON.parse(dataString);
-    //      console.log(prediction);
-    //     // Update the latest row with the predicted RDI value
-    //     const updateQuery = `
-    //       UPDATE SinterRDI
-    //       SET RDIValue = ${prediction}
-    //       WHERE CreatedAt = '${latestData.Timestamp.toISOString()}'
-    //     `;
+      try {
+       
 
-    //     await sql.query(updateQuery);
+        const prediction = JSON.parse(dataString);
+        console.log('Raw prediction:', prediction);
 
-    //     res.status(200).json({ prediction });
-    //   } catch (error) {
-    //     console.error('Error updating prediction in database:', error);
-    //     res.status(500).json({ error: 'Failed to update prediction in database.' });
-    //   }
-    // });
+        // Extract the prediction value from the object
+        const predictionValue = prediction.prediction;
+        console.log('Parsed prediction value:', predictionValue);
+
+        if (isNaN(predictionValue)) {
+          throw new Error(`Prediction value is not a number: ${predictionValue}`);
+        }
+        
+
+        // Update the latest row with the predicted RDI value
+        const updateQuery = `
+          UPDATE SinterRDI
+          SET RDIValue = @RDIValue
+          WHERE CreatedAt = @CreatedAt
+        `;
+
+        const request = new sql.Request();
+        request.input('RDIValue', sql.Decimal(9, 4), parseFloat(predictionValue)); // Ensure the type matches your database column
+        request.input('CreatedAt', sql.DateTime, latestData.CreatedAt);
+
+        await request.query(updateQuery);
+
+        res.status(200).json({ prediction: parseFloat(predictionValue) });
+      } catch (error) {
+        console.error('Error updating prediction in database:', error);
+        res.status(500).json({ error: 'Failed to update prediction in database.' });
+      }
+    });
   } 
 
   catch (error) {
