@@ -226,6 +226,8 @@ const xlsx = require('xlsx'); // For handling Excel files
 const router = express.Router();
 const dbConfig = require('../config/db.config');
 const { Parser } = require('json2csv');
+const path=require('path');
+const fs = require('fs');
 // Connect to the database
 sql.connect(dbConfig, (err) => {
   if (err) {
@@ -235,8 +237,13 @@ sql.connect(dbConfig, (err) => {
   console.log('Connected to the database.');
 });
 
+// Ensure the upload directory exists
+const uploadDir = path.resolve(__dirname, '/Sinter RDI project files/ml-model-backend/uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
 
-// Configure multer for file upload
+// Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, '/Sinter RDI project files/ml-model-backend/uploads'); // Destination folder for uploaded files
@@ -247,6 +254,8 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage: storage });
+
+
 
 // Root route
 router.get('/', (req, res) => {
@@ -278,27 +287,37 @@ router.get('/download', async (req, res) => {
 });
 
 router.post('/upload', upload.single('file'), async (req, res) => {
-  const filePath = req.file.path;
 
+   
   try {
     // Read Excel file
+   
+    if (!req.file) {
+      return res.status(400).send('No file uploaded.');
+    }
+
+     const filePath = req.file.path;
+
     const workbook = xlsx.readFile(filePath);
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
     const data = xlsx.utils.sheet_to_json(worksheet);
 
-    // Insert data into database
-    await Promise.all(data.map(async (row) => {
-      const keys = Object.keys(row).join(', ');
-      const values = Object.values(row).map(value => typeof value === 'string' ? `'${value}'` : value).join(', ');
+     // Get the last row of the data
+     const lastRow = data[data.length - 1];
 
-      const query = `
-        INSERT INTO Sinter_RDI.dbo.SinterRDI (${keys})
-        VALUES (${values})
-      `;
-      
-      await sql.query(query);
-    }));
+     // Prepare the keys and values for the last row
+     const keys = Object.keys(lastRow).join(', ');
+     const values = Object.values(lastRow).map(value => typeof value === 'string' ? `'${value}'` : value).join(', ');
+
+    // Construct the SQL query to insert the last row
+     const query = `
+    INSERT INTO Sinter_RDI.dbo.SinterRDI (${keys})
+    VALUES (${values})
+     `;
+  
+     // Execute the query
+     await sql.query(query);
 
     res.status(200).send('Data inserted successfully');
   } catch (error) {
