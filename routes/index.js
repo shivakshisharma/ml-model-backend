@@ -228,6 +228,8 @@ const dbConfig = require('../config/db.config');
 const { Parser } = require('json2csv');
 const path=require('path');
 const fs = require('fs');
+const nodemailer = require('nodemailer');
+const cron = require('node-cron');
 // Connect to the database
 sql.connect(dbConfig, (err) => {
   if (err) {
@@ -235,6 +237,23 @@ sql.connect(dbConfig, (err) => {
     return;
   }
   console.log('Connected to the database.');
+});
+
+
+// Nodemailer transporter configuration for Outlook
+
+const transporter =nodemailer.createTransport({
+  service: "Outlook365",
+  host: "smtp.office365.com",
+  port: "27",
+  tls: {
+      ciphers: "SSLv3",
+      rejectUnauthorized: false,
+  },
+  auth: {
+      user: 'shivakshi.sharma@jsw.in',
+      pass: 'jsw@1234'
+  }
 });
 
 // Ensure the upload directory exists
@@ -262,29 +281,67 @@ router.get('/', (req, res) => {
   res.send('Welcome to the Sinter RDI API!');
 });
 
-router.get('/download', async (req, res) => {
+// Fetch data from the last 24 hours and convert to CSV
+const fetchDataAndConvertToCSV = async () => {
   try {
-   
-    // Fetch the data from the last 24 hours
+    
     const result = await sql.query(`
       SELECT *
       FROM SinterRDI
       WHERE CreatedAt >= DATEADD(day, -1, GETDATE())
     `);
-
-    // Convert the result to CSV format
     const json2csvParser = new Parser();
-    const csv = json2csvParser.parse(result.recordset);
+    return json2csvParser.parse(result.recordset);
+  } catch (error) {
+    console.error('Error fetching data:', error);
+    throw new Error('Failed to fetch data');
+  }
+};
 
-    // Send the CSV file as a response
+// Route to download CSV file
+router.get('/download', async (req, res) => {
+  try {
+    const csv = await fetchDataAndConvertToCSV();
     res.header('Content-Type', 'text/csv');
     res.attachment('previous_results.csv');
     res.send(csv);
   } catch (error) {
-    console.error('Error fetching data:', error);
     res.status(500).json({ error: 'Failed to fetch data' });
   }
 });
+
+// List of recipient emails
+const recipients = ['shivakshisharma2000@gmail.com', 'snehaaatyagi@gmail.com'];
+
+// Schedule task to send email at the end of the day
+// cron.schedule('50 15 * * *', async () => {
+//   try {
+//     const csv = await fetchDataAndConvertToCSV();
+//     const filePath = path.join(__dirname, 'previous_results.csv');
+//     fs.writeFileSync(filePath, csv);
+
+//     // Email options
+//     const mailOptions = {
+//       from: 'shivakshi.sharma@jsw.in',
+//       to: recipients.join(','), // Send to multiple recipients
+//       subject: 'Daily Report',
+//       text: 'Please find attached the CSV file containing the data from the last 24 hours.',
+//       attachments: [
+//         {
+//           filename: 'previous_results.csv',
+//           path: filePath,
+//         },
+//       ],
+//     };
+
+//     // Send email
+//     await transporter.sendMail(mailOptions);
+//     console.log('Email sent successfully');
+    
+//   } catch (error) {
+//     console.error('Error sending email:', error);
+//   }
+// });
 
 router.post('/upload', upload.single('file'), async (req, res) => {
 
