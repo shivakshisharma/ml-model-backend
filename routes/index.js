@@ -1,259 +1,301 @@
-// const express = require('express');
-// const sql = require('mssql');
-// const { spawn } = require('child_process');
-// const router = express.Router();
-// const dbConfig = require('../config/db.config');
 
-// // Connect to the database
-// sql.connect(dbConfig, (err) => {
-//   if (err) {
-//     console.error('Database connection failed:', err);
-//     return;
-//   }
-//   console.log('Connected to the database.');
-// });
-
-// /**
-//  * @swagger
-//  * /:
-//  *   get:
-//  *     summary: Test database connection
-//  *     description: Execute a simple SELECT query to test the database connection
-//  *     responses:
-//  *       200:
-//  *         description: Successful response
-//  *         content:
-//  *           application/json:
-//  *             schema:
-//  *               type: array
-//  *               items:
-//  *                 type: object
-//  *                 properties:
-//  *                   Column1:
-//  *                     type: string
-//  *                   Column2:
-//  *                     type: string
-//  *       500:
-//  *         description: Database query failed
-//  */
-// router.get('/', async (req, res) => {
-//   try {
-//     const result = await sql.query`SELECT * FROM SinterRDI`; // Replace 'SinterRDI' with your table name
-//     res.json(result.recordset);
-//   } catch (err) {
-//     console.error('Query failed:', err);
-//     res.status(500).send('Database query failed.');
-//   }
-// });
-
-// /**
-//  * @swagger
-//  * /predict:
-//  *   post:
-//  *     summary: Get prediction
-//  *     description: Get a prediction from the model
-//  *     requestBody:
-//  *       required: true
-//  *       content:
-//  *         application/json:
-//  *           schema:
-//  *             type: object
-//  *             properties:
-//  *               features:
-//  *                 type: array
-//  *                 items:
-//  *                   type: number
-//  *                 example: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6]
-//  *     responses:
-//  *       200:
-//  *         description: Successful response
-//  *         content:
-//  *           application/json:
-//  *             schema:
-//  *               type: object
-//  *               properties:
-//  *                 prediction:
-//  *                   type: string
-//  *       400:
-//  *         description: Invalid input
-//  *       500:
-//  *         description: Error executing prediction script
-//  */
-// router.post('/predict', (req, res) => {
-//   const features = req.body.features;
-
-//   // Ensure that features are provided and have the correct length
-//   if (!features || features.length !== 16) {
-//     return res.status(400).json({ error: 'Invalid features array. Must contain exactly 16 elements.' });
-//   }
-
-//   const pythonProcess = spawn('python3', ['../scripts/predict.py', JSON.stringify(features)]);
-
-//   pythonProcess.stdout.on('data', (data) => {
-//     const prediction = data.toString().trim();
-//     res.json({ prediction });
-//   });
-
-//   pythonProcess.stderr.on('data', (data) => {
-//     console.error(`stderr: ${data}`);
-//     res.status(500).json({ error: 'Error executing prediction script' });
-//   });
-
-//   pythonProcess.on('close', (code) => {
-//     if (code !== 0) {
-//       console.error(`Python process exited with code ${code}`);
-//     }
-//   });
-// });
-
-// module.exports = router;
-
-
-
-
-
-// // Function to connect to databases
-// async function connectDatabases() {
-//   try {
-//     await sql.connect(dbConfig.database1); // Replace with your first database config
-//     await sql.connect(dbConfig.database2); // Replace with your second database config
-//     console.log('Connected to databases.');
-//   } catch (err) {
-//     console.error('Database connection failed:', err);
-//     throw err;
-//   }
-// }
-
-// // Function to fetch inputs from two databases
-// async function fetchInputs() {
-//   try {
-//     const query1 = 'SELECT input1, input2, ... FROM Database1Table'; // Adjust query as per your database schema
-//     const query2 = 'SELECT input3, input4, ... FROM Database2Table'; // Adjust query as per your database schema
-
-//     const results1 = await sql.query(query1);
-//     const results2 = await sql.query(query2);
-
-//     // Combine and return inputs
-//     return {
-//       input1: results1.recordset[0].input1,
-//       input2: results1.recordset[0].input2,
-//       input3: results2.recordset[0].input3,
-//       input4: results2.recordset[0].input4,
-//       // Add more inputs as needed
-//     };
-//   } catch (err) {
-//     console.error('Error fetching inputs:', err);
-//     throw err;
-//   }
-// }
-
-// // Function to predict output using Python script
-// function predictOutput(inputs) {
-//   return new Promise((resolve, reject) => {
-//     const pythonProcess = spawn('python3', ['scripts/predict.py', JSON.stringify(inputs)]);
-
-//     pythonProcess.stdout.on('data', (data) => {
-//       const prediction = data.toString().trim();
-//       resolve(prediction);
-//     });
-
-//     pythonProcess.stderr.on('data', (data) => {
-//       console.error(`stderr: ${data}`);
-//       reject('Error executing prediction script');
-//     });
-//   });
-// }
-
-// // Function to update SinterRDI table with predicted output
-// async function updateSinterRDI(prediction) {
-//   try {
-//     await sql.query`
-//       UPDATE SinterRDI
-//       SET RDI = ${prediction}
-//       WHERE id = 1; // Adjust as per your update condition
-//     `;
-//     console.log('SinterRDI table updated with predicted output:', prediction);
-//   } catch (err) {
-//     console.error('Error updating SinterRDI table:', err);
-//     throw err;
-//   }
-// }
-
-// // Route to fetch inputs, predict output, and update SinterRDI table
-// router.post('/predictAndUpdate', async (req, res) => {
-//   try {
-//     // Connect to databases
-//     await connectDatabases();
-
-//     // Fetch inputs from two databases
-//     const inputs = await fetchInputs();
-
-//     // Predict output based on inputs
-//     const prediction = await predictOutput(inputs);
-
-//     // Update SinterRDI table with predicted output
-//     await updateSinterRDI(prediction);
-
-//     res.json({ prediction });
-//   } catch (err) {
-//     console.error('Prediction and update failed:', err);
-//     res.status(500).json({ error: 'Prediction and update failed' });
-//   } finally {
-//     // Close database connections
-//     await sql.close();
-//     console.log('Database connections closed.');
-//   }
-// });
-
-// module.exports = router;
-
-
-
-
-
-
-
-
-
-
-//// for the time being
 
 const express = require('express');
 const sql = require('mssql');
+const https = require('https');
 const { spawn } = require('child_process');
 const multer = require('multer');
 const xlsx = require('xlsx'); // For handling Excel files
 const router = express.Router();
 const dbConfig = require('../config/db.config');
+const dbConfig1=require('../config/db.config1');
+const {fieldMapping}=require('../Mapping/Mapping')
 const { Parser } = require('json2csv');
 const path=require('path');
 const fs = require('fs');
 const nodemailer = require('nodemailer');
 const cron = require('node-cron');
+const oracledb = require('oracledb');
+const axios = require('axios');
+const btoa = require('btoa'); // This is used for base64 encoding
+const basicAuth=require('basic-auth-header');
+const request = require('request');
+const ntlm = require('request-ntlm');
+const kerberos = require('kerberos');
+const crypto = require('crypto');
 // Connect to the database
-sql.connect(dbConfig, (err) => {
-  if (err) {
-    console.error('Database connection failed:', err);
-    return;
+oracledb.externalAuth = false;
+oracledb.outFormat=oracledb.OUT_FORMAT_OBJECT;
+async function initOracleClient() {
+  try {
+      await oracledb.initOracleClient({ libDir: 'C:/instant_client_fornode/instantclient_23_4' }); // Replace with your Oracle Client library path
+      console.log('Oracle Client initialized successfully');
+  } catch (err) {
+      console.error('Error initializing Oracle Client:', err);
   }
-  console.log('Connected to the database.');
+}
+
+// Call initOracleClient() before establishing any database connections
+initOracleClient();
+async function connectToSqlServer() {
+  try {
+    const pool = await sql.connect(dbConfig);
+    return pool;
+  } catch (error) {
+    console.error('Database connection failed:', error);
+  }
+}
+console.log(dbConfig1);
+async function connectToPPMS() {
+  try {
+    const pool =await oracledb.getConnection( dbConfig1);
+   console.log('Connected to PPMS database.');
+    return pool;
+  } catch (error) {
+    console.error('Database connection failed:', error);
+  }
+}
+
+
+
+
+//Fetch the data from the PPMS database 
+
+async function fetchPPMSData() {
+  try {
+    const ppmsPool = await connectToPPMS();
+    const result = await ppmsPool.execute(`
+      SELECT "P5MM", MEAN_SIZE, "P40MM", FEO, MGO, FUEL, LIMESTONE, DOLOMITE, BASICITY, "Al2O3/SiO2", CAO, BALLING_MILL, WORK_DATETIME, SHIFT
+      FROM ispat.VW_SIN2_QUALITY_PARAM
+      ORDER BY WORK_DATETIME DESC 
+      FETCH FIRST 1 ROWS ONLY
+    `);
+
+    if (result.rows.length === 0) {
+      throw new Error('No data found in PPMS.');
+    }
+
+    let ppmsData = result.rows[0];
+    // console.log('Initial PPMS Data:', ppmsData);
+
+    const previousDayWorkDate = ppmsData.WORK_DATETIME.toISOString().split('T')[0];
+
+    // If the shift is not 'A' and BallingIndex is null, fetch the BallingIndex from the previous day's shift A
+    if (ppmsData.SHIFT !== 'A' && !ppmsData.BALLING_MILL) {
+      console.log('Fetching BALLING_MILL for previous day shift A, WORK_DATETIME:', previousDayWorkDate);
+
+      const previousDayResult = await ppmsPool.execute(`
+        SELECT BALLING_MILL
+        FROM ispat.VW_SIN2_QUALITY_PARAM
+        WHERE SHIFT = 'A' AND WORK_DATETIME < TO_DATE(:WORK_DATETIME, 'YYYY-MM-DD')
+        ORDER BY WORK_DATETIME DESC
+        FETCH FIRST 1 ROWS ONLY
+      `, { WORK_DATETIME: previousDayWorkDate });
+
+      // console.log('Previous Day Result:', previousDayResult);
+
+      if (previousDayResult.rows.length > 0) {
+        ppmsData.BALLING_MILL = previousDayResult.rows[0].BALLING_MILL;
+      }
+    }
+
+    // Check other parameters for null values and fetch the last available non-null values
+    const parametersToCheck = ["P5MM", "MEAN_SIZE", "P40MM", "FEO", "MGO", "FUEL", "LIMESTONE", "DOLOMITE", "BASICITY", "Al2O3/SiO2", "CAO"];
+    for (const param of parametersToCheck) {
+      if (ppmsData[param] === null) {
+        const lastNonNullResult = await ppmsPool.execute(`
+          SELECT ${param}
+          FROM ispat.VW_SIN2_QUALITY_PARAM
+          WHERE ${param} IS NOT NULL AND WORK_DATETIME < TO_DATE(:WORK_DATETIME, 'YYYY-MM-DD')
+          ORDER BY WORK_DATETIME DESC
+          FETCH FIRST 1 ROWS ONLY
+        `, { WORK_DATETIME: previousDayWorkDate });
+
+        // console.log(`Last Non-Null Result for ${param}:`, lastNonNullResult);
+
+        if (lastNonNullResult.rows.length > 0) {
+          ppmsData[param] = lastNonNullResult.rows[0][param];
+        }
+      }
+    }
+    console.log('Final PPMS Data:', ppmsData);
+
+    return ppmsData;
+
+  } catch (error) {
+    console.error('Error fetching PPMS data:', error);
+  }
+}
+
+
+//Fetch PI vision Data using the PI Web Api where time==WORK_DATETIME date.now()==WORKDATETIME fetch from pivision 
+async function fetchDataFromPiWebAPI() {
+  const names = ['AvgFCtemp', 'AcgBTP', 'MainFanSpeedRPM', 'MCspeedM'];
+  const webIds = [
+    "F1AbEN7eKxJfieEajjsXzDckv6AJOH1_iD06xGSGpQYgnoTMg7g9XFQzySE2HutOcmIIDjgSlNXU0wtRE9MLVBJLUFGXFdFQkFQSVxKU1dcU0lQfEFWR0ZDVEVNUA",  // Avg Furnace Temp
+    "F1AbEN7eKxJfieEajjsXzDckv6AJOH1_iD06xGSGpQYgnoTMgUFsw6Np1O02Yerqy6C0r5wSlNXU0wtRE9MLVBJLUFGXFdFQkFQSVxKU1dcU0lQfEFDR0JUUA",   // Avg BTP
+    "F1AbEN7eKxJfieEajjsXzDckv6AJOH1_iD06xGSGpQYgnoTMgJslMk2G4yEmmCyxS-HFM5ASlNXU0wtRE9MLVBJLUFGXFdFQkFQSVxKU1dcU0lQfE1BSU5GQU5TUEVFRFJQTQ", // Main Fan Speed RPM
+    "F1AbEN7eKxJfieEajjsXzDckv6AJOH1_iD06xGSGpQYgnoTMgZsagC0QwJEaTLusxERYyIQSlNXU0wtRE9MLVBJLUFGXFdFQkFQSVxKU1dcU0lQfE1DU1BFRURN"   // Machine Speed
+  ];
+
+  const username = "pi_developer1";
+  const password = "Jsw@2020";
+  const credentials = Buffer.from(`${username}:${password}`).toString('base64');
+
+  // Disable SSL certificate verification (NOT recommended for production)
+  const agent = new https.Agent({
+    rejectUnauthorized: false
+  });
+
+  const fetchDataForWebId = async (webId) => {
+    const url = `https://jswsl-dol-pi-af.jsw.in/piwebapi/streams/${webId}/value`;
+
+    try {
+      const response = await axios.get(url, {
+        httpsAgent: agent,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Basic ${credentials}`
+        }
+      });
+      return response.data.Value;  // Adjust this based on the actual response structure
+    } catch (error) {
+      console.error('Error fetching data:', error.message);
+      if (error.response) {
+        console.error('Response status:', error.response.status);
+        console.error('Response data:', error.response.data);
+      }
+      return null;
+    }
+  };
+
+  try {
+    const promises = webIds.map(webId => fetchDataForWebId(webId));
+    const values = await Promise.all(promises);
+
+    // Constructing the final object
+    const result = {};
+    names.forEach((name, index) => {
+      result[name] = values[index];
+    });
+
+    console.log('Final PI Web API Data:', result);
+    return result;
+  } catch (error) {
+    console.error('Error in fetchDataFromPiWebAPI:', error.message);
+  }
+}
+
+// Example usage:
+// fetchDataFromPiWebAPI().catch(err => console.error(err));
+
+//Cron to fetch the data from PPMS and store it in sinter db
+
+// cron.schedule('* * * * *', async () => {
+//   try {
+//     const ppmsData = await fetchPPMSData()
+//     const piVisionData=await fetchDataFromPiWebAPI();
+//   // Combine the data from both sources
+//     const combinedData = { ...ppmsData, ...piVisionData };
+//     console.log(combinedData);
+//     // Store the combined data in SinterRDI
+//     await storeDataInSinterRDI(combinedData);
+//     console.log('Data fetched and updated successfully');
+//   } catch (error) {
+//     console.error('Error in scheduled task:', error);
+//   }
+// });
+
+//Map the data from PPMS and store in my database Sinter_rdi
+async function storeDataInSinterRDI(combinedData) {
+  const mappedData = {};
+  for (const key in fieldMapping) {
+    if (combinedData.hasOwnProperty(key)) {
+      mappedData[fieldMapping[key]] = combinedData[key];
+    }
+  }
+
+  try {
+    const sinterPool = await connectToSqlServer();
+    const request = sinterPool.request();
+
+    // Query the most recent CreatedAt value from SinterRDI
+    const { recordset } = await request.query(`
+      SELECT TOP 1 CreatedAt
+      FROM SinterRDI
+      ORDER BY CreatedAt DESC
+    `);
+
+    const mostRecentCreatedAt = recordset.length > 0 ? recordset[0].CreatedAt : null;
+
+    // Compare WORK_DATETIME with the most recent CreatedAt
+    if (!mostRecentCreatedAt || new Date( combinedData.WORK_DATETIME) > new Date(mostRecentCreatedAt)) {
+      // Add input parameters for each field
+      Object.keys(mappedData).forEach(key => {
+        request.input(key, mappedData[key]);
+      });
+      request.input('CreatedAt', sql.DateTime,  combinedData.WORK_DATETIME);
+
+      const query = `
+        INSERT INTO SinterRDI (Size5mm, MeanSizeRawMixWet, ProductSinterAbove40mm, FeO, MgO, CoalCI, LimeCI, DolomiteCI, Basicity, Al2O3_SiO2_Ratio, CaO, BallingIndex,FCTemp,MCSpeed,MainFanSpeedRPM,BTP,CreatedAt)
+        VALUES (@Size5mm, @MeanSizeRawMixWet, @ProductSinterAbove40mm, @FeO, @MgO, @CoalCI, @LimeCI, @DolomiteCI, @Basicity, @Al2O3_SiO2_Ratio, @CaO, @BallingIndex,@FCTemp,@MCSpeed,@MainFanSpeedRPM,@BTP,@CreatedAt)
+      `;
+
+      await request.query(query);
+      console.log('Data successfully stored in SinterRDI');
+    } else {
+      console.log('No new data to insert based on WORK_DATETIME');
+    }
+  } catch (error) {
+    console.error('Error storing data in SinterRDI:', error);
+  }
+}
+
+
+
+//Get latest data from sinter rdi to show in frontend
+async function getLastSinterRDI() {
+  try {
+    const sinterPool = await connectToSqlServer(); // Connect to the Sinter RDI database
+    // Fetch the latest data from PPMS_TABLE
+    const result = await sinterPool.request().query(`
+      SELECT TOP 1 Size5mm, MeanSizeRawMixWet, ProductSinterAbove40mm, FeO, MgO, CoalCI, LimeCI, DolomiteCI, Basicity, Al2O3_SiO2_Ratio, CaO, BallingIndex,FCTemp,MCSpeed,MainFanSpeedRPM,BTP
+      FROM SinterRDI
+      ORDER BY CreatedAt ASC
+    `);
+    return result.recordset[0];
+  } catch (error) {
+    console.error('Error fetching latest Sinter_RDI data:', error);
+  }
+}
+
+//API to get the latest row inserted from PPMS into the sinter rdi table
+router.get('/realtime-data', async (req, res) => {
+  try {
+    const data = await getLastSinterRDI();
+     res.json(data);
+    //  console.log(data);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch data' });
+  }
 });
 
 
 // Nodemailer transporter configuration for Outlook
-
-const transporter =nodemailer.createTransport({
-  service: "Outlook365",
-  host: "smtp.office365.com",
-  port: "27",
-  tls: {
-      ciphers: "SSLv3",
-      rejectUnauthorized: false,
-  },
+const transporter = nodemailer.createTransport({
+  host: "smtp.gmail.com",
+  port: 578,
+  secure: false, // true for port 465, false for 587
   auth: {
-      user: 'shivakshi.sharma@jsw.in',
-      pass: 'jsw@1234'
-  }
+    user: 'shivakshi.sharma@jsw.in',
+    pass: 'Shiv@123'
+  },
+  tls: {
+    rejectUnauthorized: false
+  },
+  connectionTimeout: 60000, // 60 seconds
+  logger: true, // Enable logging
+  debug: true // Enable debug output
 });
 
 // Ensure the upload directory exists
@@ -284,12 +326,20 @@ router.get('/', (req, res) => {
 // Fetch data from the last 24 hours and convert to CSV
 const fetchDataAndConvertToCSV = async () => {
   try {
-    
-    const result = await sql.query(`
-      SELECT *
-      FROM SinterRDI
-      WHERE CreatedAt >= DATEADD(day, -1, GETDATE())
-    `);
+    const sinterPool = await connectToSqlServer(); // Connect to the Sinter RDI database
+    // const result = await sinterPool.request().query(`     
+    //   SELECT *
+    //   FROM SinterRDI
+    //   WHERE CreatedAt >= DATEADD(day, -1, GETDATE())
+    // `);
+    const result=await sinterPool.request().query(
+      `SELECT *
+       FROM SinterRDI
+       WHERE CAST(CreatedAt AS DATE) = '2024-07-02'`
+    );
+    if (result.recordset.length === 0) {
+      throw new Error('No data available');
+    }
     const json2csvParser = new Parser();
     return json2csvParser.parse(result.recordset);
   } catch (error) {
@@ -314,41 +364,42 @@ router.get('/download', async (req, res) => {
 const recipients = ['shivakshisharma2000@gmail.com', 'snehaaatyagi@gmail.com'];
 
 // Schedule task to send email at the end of the day
-// cron.schedule('50 15 * * *', async () => {
-//   try {
-//     const csv = await fetchDataAndConvertToCSV();
-//     const filePath = path.join(__dirname, 'previous_results.csv');
-//     fs.writeFileSync(filePath, csv);
+cron.schedule('* * * * *', async () => {
+  try {
+    const csv = await fetchDataAndConvertToCSV();
+    const filePath = path.join(__dirname, 'previous_results.csv');
+    fs.writeFileSync(filePath, csv);
 
-//     // Email options
-//     const mailOptions = {
-//       from: 'shivakshi.sharma@jsw.in',
-//       to: recipients.join(','), // Send to multiple recipients
-//       subject: 'Daily Report',
-//       text: 'Please find attached the CSV file containing the data from the last 24 hours.',
-//       attachments: [
-//         {
-//           filename: 'previous_results.csv',
-//           path: filePath,
-//         },
-//       ],
-//     };
+    // Email options
+    const mailOptions = {
+      from: '"shivakshi.sharma" <shivakshi.sharma@jsw.in>', // Display name with email address
+      to: recipients.join(','), // Send to multiple recipients
+      subject: 'Daily Report',
+      text: 'Please find attached the CSV file containing the data from the last 24 hours.',
+      attachments: [
+        {
+          filename: 'previous_results.csv',
+          path: filePath,
+          contentType: 'text/csv' // Set the correct content type
+        },
+      ],
+    };
 
-//     // Send email
-//     await transporter.sendMail(mailOptions);
-//     console.log('Email sent successfully');
+    // Send email
+    await transporter.sendMail(mailOptions);
+    console.log('Email sent successfully');
     
-//   } catch (error) {
-//     console.error('Error sending email:', error);
-//   }
-// });
+  } catch (error) {
+    console.error('Error sending email:', error);
+  }
+});
 
 router.post('/upload', upload.single('file'), async (req, res) => {
 
    
   try {
     // Read Excel file
-   
+    const sinterPool = await connectToSqlServer(); // Connect to the Sinter RDI database
     if (!req.file) {
       return res.status(400).send('No file uploaded.');
     }
@@ -374,7 +425,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
      `;
   
      // Execute the query
-     await sql.query(query);
+     await sinterPool.request().query(query);
 
     res.status(200).send('Data inserted successfully');
   } catch (error) {
@@ -387,7 +438,8 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 router.post('/predict', async (req, res) => {
   try {
     // Fetch the latest row from the database based on Timestamp
-    const result = await sql.query(`
+    const sinterPool = await connectToSqlServer(); // Connect to the Sinter RDI database
+      const result = await sinterPool.request().query(`
       SELECT TOP 1 *
       FROM SinterRDI
       ORDER BY CreatedAt DESC
@@ -470,7 +522,7 @@ router.post('/predict', async (req, res) => {
           WHERE CreatedAt = @CreatedAt
         `;
 
-        const request = new sql.Request();
+        const request = sinterPool.request();
         request.input('RDIValue', sql.Decimal(9, 4), parseFloat(predictionValue)); // Ensure the type matches your database column
         request.input('CreatedAt', sql.DateTime, latestData.CreatedAt);
 
