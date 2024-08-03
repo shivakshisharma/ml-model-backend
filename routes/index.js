@@ -191,7 +191,7 @@ async function fetchDataFromPiWebAPI() {
 
 //Cron to fetch the data from PPMS and store it in sinter db
 
-// cron.schedule('* * * * *', async () => {
+// cron.schedule('10 * * * *', async () => {
 //   try {
 //     const ppmsData = await fetchPPMSData()
 //     const piVisionData=await fetchDataFromPiWebAPI();
@@ -283,12 +283,13 @@ router.get('/realtime-data', async (req, res) => {
 
 // Nodemailer transporter configuration for Outlook
 const transporter = nodemailer.createTransport({
+  service:"gmail",
   host: "smtp.gmail.com",
-  port: 578,
+  port: 587,
   secure: false, // true for port 465, false for 587
   auth: {
-    user: 'shivakshi.sharma@jsw.in',
-    pass: 'Shiv@123'
+    user: 'shivakshisharma2000@gmail.com',
+    pass: 'Almighty@123'
   },
   tls: {
     rejectUnauthorized: false
@@ -297,6 +298,7 @@ const transporter = nodemailer.createTransport({
   logger: true, // Enable logging
   debug: true // Enable debug output
 });
+
 
 // Ensure the upload directory exists
 const uploadDir = path.resolve(__dirname, '/Sinter RDI project files/ml-model-backend/uploads');
@@ -331,7 +333,7 @@ const fetchDataAndConvertToCSV = async () => {
     //   SELECT *
     //   FROM SinterRDI
     //   WHERE CreatedAt >= DATEADD(day, -1, GETDATE())
-    // `);
+    // `);  //For testing with the dev data to mail check
     const result=await sinterPool.request().query(
       `SELECT *
        FROM SinterRDI
@@ -372,7 +374,7 @@ cron.schedule('* * * * *', async () => {
 
     // Email options
     const mailOptions = {
-      from: '"shivakshi.sharma" <shivakshi.sharma@jsw.in>', // Display name with email address
+      from: ' "Shivakshi sharma_544" <shivakshisharma2000@gmail.com>', // Display name with email address
       to: recipients.join(','), // Send to multiple recipients
       subject: 'Daily Report',
       text: 'Please find attached the CSV file containing the data from the last 24 hours.',
