@@ -130,7 +130,7 @@ async function fetchPPMSData() {
 
 //Fetch PI vision Data using the PI Web Api where time==WORK_DATETIME date.now()==WORKDATETIME fetch from pivision 
 async function fetchDataFromPiWebAPI() {
-  const names = ['AvgFCtemp', 'AcgBTP', 'MainFanSpeedRPM', 'MCspeedM'];
+  const names = ['FCTemp', 'BTP', 'MainFanSpeedRPM', 'MCSpeed'];
   const webIds = [
     "F1AbEN7eKxJfieEajjsXzDckv6AJOH1_iD06xGSGpQYgnoTMg7g9XFQzySE2HutOcmIIDjgSlNXU0wtRE9MLVBJLUFGXFdFQkFQSVxKU1dcU0lQfEFWR0ZDVEVNUA",  // Avg Furnace Temp
     "F1AbEN7eKxJfieEajjsXzDckv6AJOH1_iD06xGSGpQYgnoTMgUFsw6Np1O02Yerqy6C0r5wSlNXU0wtRE9MLVBJLUFGXFdFQkFQSVxKU1dcU0lQfEFDR0JUUA",   // Avg BTP
@@ -179,7 +179,7 @@ async function fetchDataFromPiWebAPI() {
       result[name] = values[index];
     });
 
-    console.log('Final PI Web API Data:', result);
+    // console.log('Final PI Web API Data:', result);
     return result;
   } catch (error) {
     console.error('Error in fetchDataFromPiWebAPI:', error.message);
@@ -191,20 +191,20 @@ async function fetchDataFromPiWebAPI() {
 
 //Cron to fetch the data from PPMS and store it in sinter db
 
-// cron.schedule('10 * * * *', async () => {
-//   try {
-//     const ppmsData = await fetchPPMSData()
-//     const piVisionData=await fetchDataFromPiWebAPI();
-//   // Combine the data from both sources
-//     const combinedData = { ...ppmsData, ...piVisionData };
-//     console.log(combinedData);
-//     // Store the combined data in SinterRDI
-//     await storeDataInSinterRDI(combinedData);
-//     console.log('Data fetched and updated successfully');
-//   } catch (error) {
-//     console.error('Error in scheduled task:', error);
-//   }
-// });
+cron.schedule('10 * * * *', async () => {
+  try {
+    const ppmsData = await fetchPPMSData()
+    const piVisionData=await fetchDataFromPiWebAPI();
+  // Combine the data from both sources
+    const combinedData = { ...ppmsData, ...piVisionData };
+    console.log(combinedData);
+    // Store the combined data in SinterRDI
+    await storeDataInSinterRDI(combinedData);
+    console.log('Data fetched and updated successfully');
+  } catch (error) {
+    console.error('Error in scheduled task:', error);
+  }
+});
 
 //Map the data from PPMS and store in my database Sinter_rdi
 async function storeDataInSinterRDI(combinedData) {
@@ -261,7 +261,7 @@ async function getLastSinterRDI() {
     const result = await sinterPool.request().query(`
       SELECT TOP 1 Size5mm, MeanSizeRawMixWet, ProductSinterAbove40mm, FeO, MgO, CoalCI, LimeCI, DolomiteCI, Basicity, Al2O3_SiO2_Ratio, CaO, BallingIndex,FCTemp,MCSpeed,MainFanSpeedRPM,BTP
       FROM SinterRDI
-      ORDER BY CreatedAt ASC
+      ORDER BY CreatedAt DESC
     `);
     return result.recordset[0];
   } catch (error) {
@@ -269,16 +269,52 @@ async function getLastSinterRDI() {
   }
 }
 
+
+async function getLastUpdatedDate(){
+  try{
+    const sinterPool=await connectToSqlServer();
+    const result=await sinterPool.request().query(`
+      SELECT TOP 1 CreatedAt
+      FROM SinterRDI
+      ORDER BY CreatedAT DESC`);
+      return result.recordset[0];
+  }catch(error){
+    console.log('Error fetching last updated date');
+  }
+}
+
+router.get('/lasteupdatedDate',async(req,res)=>{
+  try{
+    const data=await getLastUpdatedDate();
+    res.json(data);
+  }catch (error) {
+    res.status(500).json({ error: 'Failed to fetch data' });
+
+  }
+})
+
 //API to get the latest row inserted from PPMS into the sinter rdi table
 router.get('/realtime-data', async (req, res) => {
   try {
     const data = await getLastSinterRDI();
      res.json(data);
-    //  console.log(data);
+  
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch data' });
   }
 });
+
+router.get('/specific-realtime-data',async(req,res)=>{
+  try{
+    const data=await fetchDataFromPiWebAPI();
+    res.json(data);
+    // console.log(data,"PI data");
+
+  }catch(error)
+  {
+    res.status(500).json({error:"Failed to fetch data"});
+  }
+})
 
 
 // Nodemailer transporter configuration for Outlook
@@ -366,35 +402,35 @@ router.get('/download', async (req, res) => {
 const recipients = ['shivakshisharma2000@gmail.com', 'snehaaatyagi@gmail.com'];
 
 // Schedule task to send email at the end of the day
-cron.schedule('* * * * *', async () => {
-  try {
-    const csv = await fetchDataAndConvertToCSV();
-    const filePath = path.join(__dirname, 'previous_results.csv');
-    fs.writeFileSync(filePath, csv);
+// cron.schedule('* * * * *', async () => {
+//   try {
+//     const csv = await fetchDataAndConvertToCSV();
+//     const filePath = path.join(__dirname, 'previous_results.csv');
+//     fs.writeFileSync(filePath, csv);
 
-    // Email options
-    const mailOptions = {
-      from: ' "Shivakshi sharma_544" <shivakshisharma2000@gmail.com>', // Display name with email address
-      to: recipients.join(','), // Send to multiple recipients
-      subject: 'Daily Report',
-      text: 'Please find attached the CSV file containing the data from the last 24 hours.',
-      attachments: [
-        {
-          filename: 'previous_results.csv',
-          path: filePath,
-          contentType: 'text/csv' // Set the correct content type
-        },
-      ],
-    };
+//     // Email options
+//     const mailOptions = {
+//       from: ' "Shivakshi sharma_544" <shivakshisharma2000@gmail.com>', // Display name with email address
+//       to: recipients.join(','), // Send to multiple recipients
+//       subject: 'Daily Report',
+//       text: 'Please find attached the CSV file containing the data from the last 24 hours.',
+//       attachments: [
+//         {
+//           filename: 'previous_results.csv',
+//           path: filePath,
+//           contentType: 'text/csv' // Set the correct content type
+//         },
+//       ],
+//     };
 
-    // Send email
-    await transporter.sendMail(mailOptions);
-    console.log('Email sent successfully');
+//     // Send email
+//     await transporter.sendMail(mailOptions);
+//     console.log('Email sent successfully');
     
-  } catch (error) {
-    console.error('Error sending email:', error);
-  }
-});
+//   } catch (error) {
+//     console.error('Error sending email:', error);
+//   }
+// });
 
 router.post('/upload', upload.single('file'), async (req, res) => {
 

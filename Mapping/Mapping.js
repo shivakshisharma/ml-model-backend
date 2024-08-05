@@ -12,10 +12,10 @@
     "Al2O3/SiO2":"Al2O3_SiO2_Ratio",
     "CAO": "CaO",
     "BALLING_MILL": "BallingIndex",
-   "AvgFCtemp": "FCTemp",
-    "MCspeedM":"MCSpeed",
+   "FCTemp": "FCTemp",
+    "MCSpeed":"MCSpeed",
    "MainFanSpeedRPM": "MainFanSpeedRPM",
-    "AcgBTP":"BTP",
+    "BTP":"BTP",
    
   };
   module.exports = {
