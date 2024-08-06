@@ -191,20 +191,20 @@ async function fetchDataFromPiWebAPI() {
 
 //Cron to fetch the data from PPMS and store it in sinter db
 
-cron.schedule('10 * * * *', async () => {
-  try {
-    const ppmsData = await fetchPPMSData()
-    const piVisionData=await fetchDataFromPiWebAPI();
-  // Combine the data from both sources
-    const combinedData = { ...ppmsData, ...piVisionData };
-    console.log(combinedData);
-    // Store the combined data in SinterRDI
-    await storeDataInSinterRDI(combinedData);
-    console.log('Data fetched and updated successfully');
-  } catch (error) {
-    console.error('Error in scheduled task:', error);
-  }
-});
+// cron.schedule('10 * * * *', async () => {
+//   try {
+//     const ppmsData = await fetchPPMSData()
+//     const piVisionData=await fetchDataFromPiWebAPI();
+//   // Combine the data from both sources
+//     const combinedData = { ...ppmsData, ...piVisionData };
+//     console.log(combinedData);
+//     // Store the combined data in SinterRDI
+//     await storeDataInSinterRDI(combinedData);
+//     console.log('Data fetched and updated successfully');
+//   } catch (error) {
+//     console.error('Error in scheduled task:', error);
+//   }
+// });
 
 //Map the data from PPMS and store in my database Sinter_rdi
 async function storeDataInSinterRDI(combinedData) {
@@ -283,6 +283,53 @@ async function getLastUpdatedDate(){
   }
 }
 
+async function getRDIValues(date) {
+  try {
+    const sinterPool = await connectToSqlServer();
+    const result = await sinterPool.request()
+      .input('date', sql.DateTime, new Date(date))
+      .query(`
+        SELECT RDIValue, CreatedAt
+        FROM SinterRDI
+        WHERE CONVERT(DATE, CreatedAt) = CONVERT(DATE, @date)
+      `);
+
+   
+
+    if (result.recordset.length === 0) {
+      // Return a special value or throw an error for no records found
+      return { status: 404, message: 'No RDI values found for the selected date.' };
+    }
+
+    return { status: 200, data: result.recordset };
+  } catch (error) {
+    console.error('Error fetching RDI values:', error);
+    throw error; // Let the route handle the error response
+  }
+}
+
+router.get('/getRDI', async (req, res) => {
+  const { date } = req.query; // expecting a date in the query string
+
+  if (!date) {
+    return res.status(400).json({ error: 'Date is required' });
+  }
+
+  try {
+    const rdiValues = await getRDIValues(date);
+
+    // Check the status returned from getRDIValues
+    if (rdiValues.status === 404) {
+      return res.status(404).json({ message: rdiValues.message });
+    }
+
+    // Send the retrieved data
+    return res.status(200).json(rdiValues.data);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch data' });
+  }
+});
+
 router.get('/lasteupdatedDate',async(req,res)=>{
   try{
     const data=await getLastUpdatedDate();
@@ -292,6 +339,8 @@ router.get('/lasteupdatedDate',async(req,res)=>{
 
   }
 })
+
+
 
 //API to get the latest row inserted from PPMS into the sinter rdi table
 router.get('/realtime-data', async (req, res) => {
@@ -469,6 +518,65 @@ router.post('/upload', upload.single('file'), async (req, res) => {
   } catch (error) {
     console.error('Error processing file and inserting into database:', error);
     res.status(500).json({ error: 'Failed to process file and insert data into database.' });
+  }
+});
+
+// Prediction endpoint
+router.post('/predict-manual', async (req, res) => {
+  try {
+    // Extract features from the request body
+    console.log(req.body);
+    const features = req.body.features; // Extract features from the request body
+   
+
+    if (!features || !Array.isArray(features) || features.length === 0) {
+      return res.status(400).json({ error: 'Features are required for prediction.' });
+    }
+
+    // Log the features for debugging
+    console.log('Received features for prediction:', features);
+    
+    // Spawn a child process to run the Python script
+    const pythonProcess = spawn('python', ['/Sinter RDI project files/ml-model-backend/scripts/predict.py', JSON.stringify(features)]);
+
+    let dataString = '';
+
+    pythonProcess.stdout.on('data', (data) => {
+      dataString += data.toString();
+    });
+
+    pythonProcess.stderr.on('data', (data) => {
+      console.error(`stderr: ${data}`);
+    });
+
+    pythonProcess.on('close', (code) => {
+      if (code !== 0) {
+        res.status(500).json({ error: 'Error in Python script execution.' });
+        return;
+      }
+
+      try {
+        const prediction = JSON.parse(dataString);
+        console.log('Raw prediction:', prediction);
+
+        // Extract the prediction value from the object
+        const predictionValue = prediction.prediction;
+        console.log('Parsed prediction value:', predictionValue);
+
+        if (isNaN(predictionValue)) {
+          throw new Error(`Prediction value is not a number: ${predictionValue}`);
+        }
+
+        // Send the prediction value back to the frontend
+        res.status(200).json({ prediction: parseFloat(predictionValue) });
+      } catch (error) {
+        console.error('Error parsing prediction response:', error);
+        res.status(500).json({ error: 'Failed to parse prediction response.' });
+      }
+    });
+  } catch (error) {
+    console.error('Error in prediction endpoint:', error);
+    res.status(500).json({ error: 'Failed to process prediction request.' });
   }
 });
 
