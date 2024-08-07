@@ -439,16 +439,17 @@ router.get('/', (req, res) => {
 const fetchDataAndConvertToCSV = async () => {
   try {
     const sinterPool = await connectToSqlServer(); // Connect to the Sinter RDI database
-    // const result = await sinterPool.request().query(`     
-    //   SELECT *
-    //   FROM SinterRDI
-    //   WHERE CreatedAt >= DATEADD(day, -1, GETDATE())
-    // `);  //For testing with the dev data to mail check
-    const result=await sinterPool.request().query(
-      `SELECT *
-       FROM SinterRDI
-       WHERE CAST(CreatedAt AS DATE) = '2024-07-02'`
-    );
+    const result = await sinterPool.request().query(`     
+      SELECT *
+      FROM SinterRDI
+      WHERE CreatedAt >= DATEADD(day, -1, GETDATE())
+    `);
+    //For testing with the dev data to mail check
+    // const result=await sinterPool.request().query(
+    //   `SELECT *
+    //    FROM SinterRDI
+    //    WHERE CAST(CreatedAt AS DATE) = '2024-07-02'`
+    // );
     if (result.recordset.length === 0) {
       throw new Error('No data available');
     }
