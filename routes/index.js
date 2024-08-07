@@ -61,13 +61,15 @@ async function connectToPPMS() {
 
 //Fetch the data from the PPMS database 
 
+
+
 async function fetchPPMSData() {
   try {
     const ppmsPool = await connectToPPMS();
     const result = await ppmsPool.execute(`
       SELECT "P5MM", MEAN_SIZE, "P40MM", FEO, MGO, FUEL, LIMESTONE, DOLOMITE, BASICITY, "Al2O3/SiO2", CAO, BALLING_MILL, WORK_DATETIME, SHIFT
       FROM ispat.VW_SIN2_QUALITY_PARAM
-      ORDER BY WORK_DATETIME DESC 
+      ORDER BY WORK_DATETIME DESC
       FETCH FIRST 1 ROWS ONLY
     `);
 
@@ -76,26 +78,35 @@ async function fetchPPMSData() {
     }
 
     let ppmsData = result.rows[0];
-    // console.log('Initial PPMS Data:', ppmsData);
+    console.log(ppmsData,"Initial Data");
+    const currentWorkDate = ppmsData.WORK_DATETIME.toISOString().split('T')[0];
 
-    const previousDayWorkDate = ppmsData.WORK_DATETIME.toISOString().split('T')[0];
+    // If BALLING_MILL is null, fetch for shift A of the same day or previous day
+    if (!ppmsData.BALLING_MILL) {
+      console.log('BALLING_MILL is null, fetching for shift A of the same work date:', currentWorkDate);
 
-    // If the shift is not 'A' and BallingIndex is null, fetch the BallingIndex from the previous day's shift A
-    if (ppmsData.SHIFT !== 'A' && !ppmsData.BALLING_MILL) {
-      console.log('Fetching BALLING_MILL for previous day shift A, WORK_DATETIME:', previousDayWorkDate);
-
-      const previousDayResult = await ppmsPool.execute(`
+      let ballingMillResult = await ppmsPool.execute(`
         SELECT BALLING_MILL
         FROM ispat.VW_SIN2_QUALITY_PARAM
-        WHERE SHIFT = 'A' AND WORK_DATETIME < TO_DATE(:WORK_DATETIME, 'YYYY-MM-DD')
-        ORDER BY WORK_DATETIME DESC
+        WHERE SHIFT = 'A' AND WORK_DATETIME = TO_DATE(:WORK_DATETIME, 'YYYY-MM-DD')
         FETCH FIRST 1 ROWS ONLY
-      `, { WORK_DATETIME: previousDayWorkDate });
+      `, { WORK_DATETIME: currentWorkDate });
 
-      // console.log('Previous Day Result:', previousDayResult);
+      if (ballingMillResult.rows.length === 0) {
+        // If no BALLING_MILL for shift A of the same day, fetch for shift A of the previous day
+        console.log('No BALLING_MILL for shift A of the same day, fetching for previous work date');
 
-      if (previousDayResult.rows.length > 0) {
-        ppmsData.BALLING_MILL = previousDayResult.rows[0].BALLING_MILL;
+        ballingMillResult = await ppmsPool.execute(`
+          SELECT BALLING_MILL
+          FROM ispat.VW_SIN2_QUALITY_PARAM
+          WHERE SHIFT = 'A' AND WORK_DATETIME < TO_DATE(:WORK_DATETIME, 'YYYY-MM-DD')
+          ORDER BY WORK_DATETIME DESC
+          FETCH FIRST 1 ROWS ONLY
+        `, { WORK_DATETIME: currentWorkDate });
+      }
+
+      if (ballingMillResult.rows.length > 0) {
+        ppmsData.BALLING_MILL = ballingMillResult.rows[0].BALLING_MILL;
       }
     }
 
@@ -109,23 +120,22 @@ async function fetchPPMSData() {
           WHERE ${param} IS NOT NULL AND WORK_DATETIME < TO_DATE(:WORK_DATETIME, 'YYYY-MM-DD')
           ORDER BY WORK_DATETIME DESC
           FETCH FIRST 1 ROWS ONLY
-        `, { WORK_DATETIME: previousDayWorkDate });
-
-        // console.log(`Last Non-Null Result for ${param}:`, lastNonNullResult);
+        `, { WORK_DATETIME: currentWorkDate });
 
         if (lastNonNullResult.rows.length > 0) {
           ppmsData[param] = lastNonNullResult.rows[0][param];
         }
       }
     }
-    console.log('Final PPMS Data:', ppmsData);
 
+    console.log('Final PPMS Data:', ppmsData);
     return ppmsData;
 
   } catch (error) {
     console.error('Error fetching PPMS data:', error);
   }
 }
+
 
 
 //Fetch PI vision Data using the PI Web Api where time==WORK_DATETIME date.now()==WORKDATETIME fetch from pivision 
@@ -191,7 +201,22 @@ async function fetchDataFromPiWebAPI() {
 
 //Cron to fetch the data from PPMS and store it in sinter db
 
-// cron.schedule('10 * * * *', async () => {
+cron.schedule('0 */2 * * *', async () => {
+  try {
+    const ppmsData = await fetchPPMSData()
+    const piVisionData=await fetchDataFromPiWebAPI();
+  // Combine the data from both sources
+    const combinedData = { ...ppmsData, ...piVisionData };
+    console.log(combinedData);
+    // Store the combined data in SinterRDI
+    await storeDataInSinterRDI(combinedData);
+    console.log('Data fetched and updated successfully');
+  } catch (error) {
+    console.error('Error in scheduled task:', error);
+  }
+});
+
+// cron.schedule('* * * * *', async () => {
 //   try {
 //     const ppmsData = await fetchPPMSData()
 //     const piVisionData=await fetchDataFromPiWebAPI();
@@ -368,13 +393,13 @@ router.get('/specific-realtime-data',async(req,res)=>{
 
 // Nodemailer transporter configuration for Outlook
 const transporter = nodemailer.createTransport({
-  service:"gmail",
-  host: "smtp.gmail.com",
+  service:"Outlook365",
+  host: "smtp.office365.com",
   port: 587,
   secure: false, // true for port 465, false for 587
   auth: {
-    user: 'shivakshisharma2000@gmail.com',
-    pass: 'Almighty@123'
+    user: 'shivakshi.sharma@jsw.in',
+    pass: 'Shiv@123'
   },
   tls: {
     rejectUnauthorized: false
@@ -448,7 +473,7 @@ router.get('/download', async (req, res) => {
 });
 
 // List of recipient emails
-const recipients = ['shivakshisharma2000@gmail.com', 'snehaaatyagi@gmail.com'];
+const recipients = ['sneha.tyagi@jsw.in', 'snehaaatyagi@gmail.com'];
 
 // Schedule task to send email at the end of the day
 // cron.schedule('* * * * *', async () => {
@@ -459,7 +484,7 @@ const recipients = ['shivakshisharma2000@gmail.com', 'snehaaatyagi@gmail.com'];
 
 //     // Email options
 //     const mailOptions = {
-//       from: ' "Shivakshi sharma_544" <shivakshisharma2000@gmail.com>', // Display name with email address
+//       from: ' "Shivakshi Sharma" <shivakshi.sharma@jsw.in>', // Display name with email address
 //       to: recipients.join(','), // Send to multiple recipients
 //       subject: 'Daily Report',
 //       text: 'Please find attached the CSV file containing the data from the last 24 hours.',
