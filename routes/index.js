@@ -79,30 +79,33 @@ async function fetchPPMSData() {
 
     let ppmsData = result.rows[0];
     console.log(ppmsData,"Initial Data");
+     // Adjust WORK_DATETIME by adding 5 hours and 30 minutes
+     ppmsData.WORK_DATETIME = new Date(ppmsData.WORK_DATETIME.getTime() + 5.5 * 60 * 60 * 1000);
     const currentWorkDate = ppmsData.WORK_DATETIME.toISOString().split('T')[0];
 
-    // If BALLING_MILL is null, fetch for shift A of the same day or previous day
+    // If BALLING_MILL is null, fetch for shift A of the same day
     if (!ppmsData.BALLING_MILL) {
       console.log('BALLING_MILL is null, fetching for shift A of the same work date:', currentWorkDate);
 
       let ballingMillResult = await ppmsPool.execute(`
         SELECT BALLING_MILL
         FROM ispat.VW_SIN2_QUALITY_PARAM
-        WHERE SHIFT = 'A' AND WORK_DATETIME = TO_DATE(:WORK_DATETIME, 'YYYY-MM-DD')
+        WHERE SHIFT = 'A' AND WORK_DATETIME >= :WORK_DATETIME
+        ORDER BY WORK_DATETIME ASC
         FETCH FIRST 1 ROWS ONLY
-      `, { WORK_DATETIME: currentWorkDate });
+      `, { WORK_DATETIME: ppmsData.WORK_DATETIME });
 
       if (ballingMillResult.rows.length === 0) {
-        // If no BALLING_MILL for shift A of the same day, fetch for shift A of the previous day
+        // Fetch for shift A of the previous day if no result for the same day
         console.log('No BALLING_MILL for shift A of the same day, fetching for previous work date');
 
         ballingMillResult = await ppmsPool.execute(`
           SELECT BALLING_MILL
           FROM ispat.VW_SIN2_QUALITY_PARAM
-          WHERE SHIFT = 'A' AND WORK_DATETIME < TO_DATE(:WORK_DATETIME, 'YYYY-MM-DD')
+          WHERE SHIFT = 'A' AND WORK_DATETIME < :WORK_DATETIME
           ORDER BY WORK_DATETIME DESC
           FETCH FIRST 1 ROWS ONLY
-        `, { WORK_DATETIME: currentWorkDate });
+        `, { WORK_DATETIME: ppmsData.WORK_DATETIME });
       }
 
       if (ballingMillResult.rows.length > 0) {
@@ -111,16 +114,16 @@ async function fetchPPMSData() {
     }
 
     // Check other parameters for null values and fetch the last available non-null values
-    const parametersToCheck = ["P5MM", "MEAN_SIZE", "P40MM", "FEO", "MGO", "FUEL", "LIMESTONE", "DOLOMITE", "BASICITY", "Al2O3/SiO2", "CAO"];
+    const parametersToCheck = ["P5MM", "MEAN_SIZE", "P40MM", "FEO", "MGO", "FUEL", "LIMESTONE", "DOLOMITE", "BASICITY", "Al2O3/SiO2", "CAO","BALLING_MILL"];
     for (const param of parametersToCheck) {
       if (ppmsData[param] === null) {
         const lastNonNullResult = await ppmsPool.execute(`
           SELECT ${param}
           FROM ispat.VW_SIN2_QUALITY_PARAM
-          WHERE ${param} IS NOT NULL AND WORK_DATETIME < TO_DATE(:WORK_DATETIME, 'YYYY-MM-DD')
+          WHERE ${param} IS NOT NULL AND WORK_DATETIME < :WORK_DATETIME
           ORDER BY WORK_DATETIME DESC
           FETCH FIRST 1 ROWS ONLY
-        `, { WORK_DATETIME: currentWorkDate });
+        `, { WORK_DATETIME: ppmsData.WORK_DATETIME });
 
         if (lastNonNullResult.rows.length > 0) {
           ppmsData[param] = lastNonNullResult.rows[0][param];
@@ -201,22 +204,7 @@ async function fetchDataFromPiWebAPI() {
 
 //Cron to fetch the data from PPMS and store it in sinter db
 
-cron.schedule('0 */2 * * *', async () => {
-  try {
-    const ppmsData = await fetchPPMSData()
-    const piVisionData=await fetchDataFromPiWebAPI();
-  // Combine the data from both sources
-    const combinedData = { ...ppmsData, ...piVisionData };
-    console.log(combinedData);
-    // Store the combined data in SinterRDI
-    await storeDataInSinterRDI(combinedData);
-    console.log('Data fetched and updated successfully');
-  } catch (error) {
-    console.error('Error in scheduled task:', error);
-  }
-});
-
-// cron.schedule('* * * * *', async () => {
+// cron.schedule('0 */2 * * *', async () => {
 //   try {
 //     const ppmsData = await fetchPPMSData()
 //     const piVisionData=await fetchDataFromPiWebAPI();
@@ -230,6 +218,21 @@ cron.schedule('0 */2 * * *', async () => {
 //     console.error('Error in scheduled task:', error);
 //   }
 // });
+
+cron.schedule('* * * * *', async () => {
+  try {
+    const ppmsData = await fetchPPMSData()
+    const piVisionData=await fetchDataFromPiWebAPI();
+  // Combine the data from both sources
+    const combinedData = { ...ppmsData, ...piVisionData };
+    console.log(combinedData);
+    // Store the combined data in SinterRDI
+    await storeDataInSinterRDI(combinedData);
+    console.log('Data fetched and updated successfully');
+  } catch (error) {
+    console.error('Error in scheduled task:', error);
+  }
+});
 
 //Map the data from PPMS and store in my database Sinter_rdi
 async function storeDataInSinterRDI(combinedData) {
@@ -316,10 +319,8 @@ async function getRDIValues(date) {
       .query(`
         SELECT RDIValue, CreatedAt
         FROM SinterRDI
-        WHERE CONVERT(DATE, CreatedAt) = CONVERT(DATE, @date)
+        WHERE CreatedAt >= @date AND CreatedAt < DATEADD(DAY, 1, @date)
       `);
-
-   
 
     if (result.recordset.length === 0) {
       // Return a special value or throw an error for no records found
@@ -335,6 +336,7 @@ async function getRDIValues(date) {
 
 router.get('/getRDI', async (req, res) => {
   const { date } = req.query; // expecting a date in the query string
+  
 
   if (!date) {
     return res.status(400).json({ error: 'Date is required' });
