@@ -45,7 +45,7 @@ async function connectToSqlServer() {
     console.error('Database connection failed:', error);
   }
 }
-console.log(dbConfig1);
+// console.log(dbConfig1);
 async function connectToPPMS() {
   try {
     const pool =await oracledb.getConnection( dbConfig1);
@@ -69,6 +69,7 @@ async function fetchPPMSData() {
     const result = await ppmsPool.execute(`
       SELECT "P5MM", MEAN_SIZE, "P40MM", FEO, MGO, FUEL, LIMESTONE, DOLOMITE, BASICITY, "Al2O3/SiO2", CAO, BALLING_MILL, WORK_DATETIME, SHIFT
       FROM ispat.VW_SIN2_QUALITY_PARAM
+      WHERE TRUNC(WORK_DATETIME) = TRUNC(SYSDATE)  -- Ensures only today's data is fetched
       ORDER BY WORK_DATETIME DESC
       FETCH FIRST 1 ROWS ONLY
     `);
@@ -76,62 +77,56 @@ async function fetchPPMSData() {
     if (result.rows.length === 0) {
       throw new Error('No data found in PPMS.');
     }
-
+   
     let ppmsData = result.rows[0];
-    console.log(ppmsData,"Initial Data");
+    ppmsData.WORK_DATETIME = new Date(ppmsData.WORK_DATETIME.getTime() + 5.5 * 60 * 60 * 1000);
+    // console.log(ppmsData,"Initial Data");
      // Adjust WORK_DATETIME by adding 5 hours and 30 minutes
-     ppmsData.WORK_DATETIME = new Date(ppmsData.WORK_DATETIME.getTime() + 5.5 * 60 * 60 * 1000);
     const currentWorkDate = ppmsData.WORK_DATETIME.toISOString().split('T')[0];
+    // console.log(currentWorkDate);
 
-    // If BALLING_MILL is null, fetch for shift A of the same day
     if (!ppmsData.BALLING_MILL) {
-      console.log('BALLING_MILL is null, fetching for shift A of the same work date:', currentWorkDate);
-
-      let ballingMillResult = await ppmsPool.execute(`
-        SELECT BALLING_MILL
-        FROM ispat.VW_SIN2_QUALITY_PARAM
-        WHERE SHIFT = 'A' AND WORK_DATETIME >= :WORK_DATETIME
-        ORDER BY WORK_DATETIME ASC
-        FETCH FIRST 1 ROWS ONLY
-      `, { WORK_DATETIME: ppmsData.WORK_DATETIME });
-
-      if (ballingMillResult.rows.length === 0) {
-        // Fetch for shift A of the previous day if no result for the same day
-        console.log('No BALLING_MILL for shift A of the same day, fetching for previous work date');
-
-        ballingMillResult = await ppmsPool.execute(`
-          SELECT BALLING_MILL
-          FROM ispat.VW_SIN2_QUALITY_PARAM
-          WHERE SHIFT = 'A' AND WORK_DATETIME < :WORK_DATETIME
-          ORDER BY WORK_DATETIME DESC
-          FETCH FIRST 1 ROWS ONLY
-        `, { WORK_DATETIME: ppmsData.WORK_DATETIME });
+      console.log('BALLING_MILL is null, fetching the last updated BallingIndex from SinterRDI table');
+      const sinterPool = await connectToSqlServer();
+      const request = sinterPool.request();
+  
+      const lastBallingIndexResult = await request.query(`
+          SELECT TOP 1 BallingIndex
+          FROM Sinter_RDI.dbo.SinterRDI
+          WHERE BallingIndex IS NOT NULL
+          ORDER BY CreatedAt DESC
+      `);
+  
+      if (lastBallingIndexResult.recordset.length > 0) { // Use recordset instead of rows
+          // Assign the last fetched BallingIndex to ppmsData
+          ppmsData.BALLING_MILL = lastBallingIndexResult.recordset[0].BallingIndex;
+          console.log(`Fetched last BallingIndex: ${ppmsData.BALLING_MILL}`);
+      } else {
+          console.log('No non-null BallingIndex found in SinterRDI table.');
       }
-
-      if (ballingMillResult.rows.length > 0) {
-        ppmsData.BALLING_MILL = ballingMillResult.rows[0].BALLING_MILL;
-      }
-    }
+  }
+  
 
     // Check other parameters for null values and fetch the last available non-null values
-    const parametersToCheck = ["P5MM", "MEAN_SIZE", "P40MM", "FEO", "MGO", "FUEL", "LIMESTONE", "DOLOMITE", "BASICITY", "Al2O3/SiO2", "CAO","BALLING_MILL"];
+    const parametersToCheck = ["P5MM", "MEAN_SIZE", "P40MM", "FEO", "MGO", "FUEL", "LIMESTONE", "DOLOMITE", "BASICITY", "Al2O3/SiO2", "CAO"];
     for (const param of parametersToCheck) {
       if (ppmsData[param] === null) {
-        const lastNonNullResult = await ppmsPool.execute(`
-          SELECT ${param}
-          FROM ispat.VW_SIN2_QUALITY_PARAM
-          WHERE ${param} IS NOT NULL AND WORK_DATETIME < :WORK_DATETIME
+        const mappedColumn = fieldMapping[param]; // Get the mapped column name
+    
+        const lastNonNullResult = await request.query(`
+          SELECT TOP 1 ${mappedColumn}
+          FROM Sinter_RDI.dbo.SinterRDI
+          WHERE ${mappedColumn} IS NOT NULL AND WORK_DATETIME < :WORK_DATETIME
           ORDER BY WORK_DATETIME DESC
-          FETCH FIRST 1 ROWS ONLY
         `, { WORK_DATETIME: ppmsData.WORK_DATETIME });
-
-        if (lastNonNullResult.rows.length > 0) {
-          ppmsData[param] = lastNonNullResult.rows[0][param];
+    
+        if (lastNonNullResult.recordset.length > 0) {
+          ppmsData[param] = lastNonNullResult.recordset[0][mappedColumn]; // Set the value in ppmsData
         }
       }
     }
 
-    console.log('Final PPMS Data:', ppmsData);
+    //console.log('Final PPMS Data:', ppmsData);
     return ppmsData;
 
   } catch (error) {
@@ -225,7 +220,7 @@ cron.schedule('* * * * *', async () => {
     const piVisionData=await fetchDataFromPiWebAPI();
   // Combine the data from both sources
     const combinedData = { ...ppmsData, ...piVisionData };
-    console.log(combinedData);
+    // console.log(combinedData);
     // Store the combined data in SinterRDI
     await storeDataInSinterRDI(combinedData);
     console.log('Data fetched and updated successfully');
@@ -314,13 +309,21 @@ async function getLastUpdatedDate(){
 async function getRDIValues(date) {
   try {
     const sinterPool = await connectToSqlServer();
+
+    const adjustedDate = new Date(new Date(date).getTime() + 5.5 * 60 * 60 * 1000); // Adjust the date to match the time zone difference
+    // Set the start of the day and end of the day for the query
+    const startOfDay = new Date(adjustedDate.setUTCHours(0, 0, 0, 0));
+    const endOfDay = new Date(adjustedDate.setUTCHours(23, 59, 59, 999));
+
     const result = await sinterPool.request()
-      .input('date', sql.DateTime, new Date(date))
+      .input('startOfDay', sql.DateTime, startOfDay)
+      .input('endOfDay', sql.DateTime, endOfDay)
       .query(`
         SELECT RDIValue, CreatedAt
         FROM SinterRDI
-        WHERE CreatedAt >= @date AND CreatedAt < DATEADD(DAY, 1, @date)
+        WHERE CreatedAt >= @startOfDay AND CreatedAt < @endOfDay
       `);
+      
 
     if (result.recordset.length === 0) {
       // Return a special value or throw an error for no records found
@@ -562,7 +565,7 @@ router.post('/predict-manual', async (req, res) => {
     }
 
     // Log the features for debugging
-    console.log('Received features for prediction:', features);
+    // console.log('Received features for prediction:', features);
     
     // Spawn a child process to run the Python script
     const pythonProcess = spawn('python', ['/Sinter RDI project files/ml-model-backend/scripts/predict.py', JSON.stringify(features)]);
@@ -643,7 +646,7 @@ router.post('/predict', async (req, res) => {
     ];
 
     // Spawn a child process to run the Python script
-    console.log(JSON.stringify(features));
+    // console.log(JSON.stringify(features));
     
     const pythonProcess = spawn('python', ['/Sinter RDI project files/ml-model-backend/scripts/predict.py', JSON.stringify(features)]);
 
