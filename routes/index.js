@@ -23,6 +23,12 @@ const request = require('request');
 const ntlm = require('request-ntlm');
 const kerberos = require('kerberos');
 const crypto = require('crypto');
+const utc = require('dayjs/plugin/utc');
+const dayjs = require('dayjs');
+const timezone = require('dayjs/plugin/timezone');
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 // Connect to the database
 oracledb.externalAuth = false;
 oracledb.outFormat=oracledb.OUT_FORMAT_OBJECT;
@@ -306,14 +312,16 @@ async function getLastUpdatedDate(){
   }
 }
 
-async function getRDIValues(date) {
+async function getRDIValues(startDate, endDate) {
   try {
     const sinterPool = await connectToSqlServer();
 
-    const adjustedDate = new Date(new Date(date).getTime() + 5.5 * 60 * 60 * 1000); // Adjust the date to match the time zone difference
+    const adjustedStartDate = new Date(new Date(startDate).getTime() + 5.5 * 60 * 60 * 1000); // Adjust the date to match the time zone difference
+    const adjustedEndDate = new Date(new Date(endDate).getTime() + 5.5 * 60 * 60 * 1000); // Adjust the date to match the time zone difference
+
     // Set the start of the day and end of the day for the query
-    const startOfDay = new Date(adjustedDate.setUTCHours(0, 0, 0, 0));
-    const endOfDay = new Date(adjustedDate.setUTCHours(23, 59, 59, 999));
+    const startOfDay = new Date(adjustedStartDate.setUTCHours(0, 0, 0, 0));
+    const endOfDay = new Date(adjustedEndDate.setUTCHours(23, 59, 59, 999));
 
     const result = await sinterPool.request()
       .input('startOfDay', sql.DateTime, startOfDay)
@@ -338,27 +346,16 @@ async function getRDIValues(date) {
 }
 
 router.get('/getRDI', async (req, res) => {
-  const { date } = req.query; // expecting a date in the query string
-  
-
-  if (!date) {
-    return res.status(400).json({ error: 'Date is required' });
-  }
+  const { startDate, endDate } = req.query;
 
   try {
-    const rdiValues = await getRDIValues(date);
-
-    // Check the status returned from getRDIValues
-    if (rdiValues.status === 404) {
-      return res.status(404).json({ message: rdiValues.message });
-    }
-
-    // Send the retrieved data
-    return res.status(200).json(rdiValues.data);
+    const result = await getRDIValues(startDate, endDate);
+    res.status(result.status).json(result.data || { message: result.message });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch data' });
+    res.status(500).json({ message: 'Internal server error' });
   }
 });
+
 
 router.get('/lasteupdatedDate',async(req,res)=>{
   try{
@@ -443,12 +440,34 @@ router.get('/', (req, res) => {
 // Fetch data from the last 24 hours and convert to CSV
 const fetchDataAndConvertToCSV = async () => {
   try {
+    
     const sinterPool = await connectToSqlServer(); // Connect to the Sinter RDI database
-    const result = await sinterPool.request().query(`     
-      SELECT *
-      FROM SinterRDI
-      WHERE CreatedAt >= DATEADD(day, -1, GETDATE())
-    `);
+      // Define your local time zone, e.g., 'Asia/Kolkata' for IST
+      const localTimeZone = 'Asia/Kolkata';
+
+      // Get current time in local time zone and convert to UTC
+      const localNow = dayjs().tz(localTimeZone).format('YYYY-MM-DDTHH:mm:ss');
+      const utcNow = dayjs(localNow).utc().format('YYYY-MM-DDTHH:mm:ss');
+          // Calculate the start and end of today in local time
+     const startOfToday = dayjs().tz(localTimeZone).startOf('day');
+    const endOfToday = dayjs().tz(localTimeZone).endOf('day');
+  
+       // Calculate the start of the previous day
+       const startOfPreviousDay = startOfToday.subtract(1, 'day');
+        
+       // Convert these to UTC
+       const startOfTodayUTC = startOfToday.utc().format('YYYY-MM-DDTHH:mm:ss');
+       const endOfTodayUTC = endOfToday.utc().format('YYYY-MM-DDTHH:mm:ss');
+       const startOfPreviousDayUTC = startOfPreviousDay.utc().format('YYYY-MM-DDTHH:mm:ss');
+
+       // Query to get data from the last 24 hours based on UTC time
+       const result = await sinterPool.request().query(`
+           SELECT *
+           FROM SinterRDI
+           WHERE CreatedAt >= '${startOfPreviousDayUTC}' 
+             AND CreatedAt <= '${endOfTodayUTC}'
+       `);
+
     //For testing with the dev data to mail check
     // const result=await sinterPool.request().query(
     //   `SELECT *
@@ -458,6 +477,7 @@ const fetchDataAndConvertToCSV = async () => {
     if (result.recordset.length === 0) {
       throw new Error('No data available');
     }
+    
     const json2csvParser = new Parser();
     return json2csvParser.parse(result.recordset);
   } catch (error) {
