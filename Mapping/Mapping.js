@@ -16,6 +16,8 @@
     "MCSpeed":"MCSpeed",
    "MainFanSpeedRPM": "MainFanSpeedRPM",
     "BTP":"BTP",
+    "RDI":"ActualRDI",
+    "pred_RDI":"PredictedRDI"
    
   };
   module.exports = {

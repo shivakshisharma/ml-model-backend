@@ -40,6 +40,13 @@ async function initOracleClient() {
       console.error('Error initializing Oracle Client:', err);
   }
 }
+function getTodayDate() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0'); // Months are 0-based
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 // Call initOracleClient() before establishing any database connections
 initOracleClient();
@@ -51,6 +58,7 @@ async function connectToSqlServer() {
     console.error('Database connection failed:', error);
   }
 }
+
 // console.log(dbConfig1);
 async function connectToPPMS() {
   try {
@@ -66,6 +74,165 @@ async function connectToPPMS() {
 
 
 //Fetch the data from the PPMS database 
+async function fetchPredictedRDI(date) {
+  try {
+    // Calculate the previous date
+    const previousDate = new Date(date);
+    previousDate.setDate(previousDate.getDate() - 1);
+   
+    const previousDateString = previousDate.toISOString().split('T')[0]; // Format to 'YYYY-MM-DD'
+
+    const sinterPool = await connectToSqlServer(); // Connect to the Sinter RDI database
+
+    // Use the calculated previous date in the SQL query
+    const result = await sinterPool.request()
+      .input('previousDate', sql.Date, previousDateString) // Use appropriate data type
+      .query(`
+        SELECT AVG(RDIValue) as RDI
+        FROM Sinter_RDI.dbo.SinterRDI
+        WHERE CAST(CreatedAt AS DATE) = @previousDate
+      `);
+      const test=await sinterPool.request()
+      .input('previousDate',sql.Date,previousDateString)
+      .query(`SELECT RDIValue as RDI
+       FROM Sinter_RDI.dbo.SinterRDI
+        WHERE CAST(CreatedAt AS DATE) = @previousDate `)
+       
+      
+  
+
+    if (result.recordset.length === 0) {
+      console.log('No data found for the previous date.');
+      return null; // Return null or an appropriate value if no data is found
+    }
+
+    const actualData = result.recordset[0].RDI;
+
+    return actualData; // Return the average RDI from the result
+
+  } catch (error) {
+    console.error('Error fetching Predicted RDI:', error);
+    throw error; // Re-throw the error to handle it upstream
+  }
+}
+
+
+
+async function storeInActualRditable(combinedRDIValues) {
+  const mappedData = {};
+
+  // Assuming fieldMapping is defined somewhere
+  for (const key in fieldMapping) {
+    if (combinedRDIValues.hasOwnProperty(key)) {
+      mappedData[fieldMapping[key]] = combinedRDIValues[key];
+    }
+  }
+
+  const actualRDI = mappedData['ActualRDI'];
+  const predictedRDI = mappedData['PredictedRDI'];
+  console.log(actualRDI, predictedRDI, "sinter ACTUAL RDI");
+
+  try {
+    const sinterPool = await connectToSqlServer();
+    const request = sinterPool.request();
+
+    // Calculate the date for the previous day
+    const previousDate = new Date();
+    previousDate.setDate(previousDate.getDate() - 1);
+    const previousDateString = previousDate.toISOString().split('T')[0]; // Format to 'YYYY-MM-DD'
+
+    // Query the most recent CreatedAt value from ActualSinterRDI
+    const { recordset } = await request.query(`
+      SELECT TOP 1 CreatedAt
+      FROM Sinter_RDI.dbo.ActualSinterRDI
+      ORDER BY CreatedAt DESC
+    `);
+
+    const mostRecentCreatedAt = recordset.length > 0 ? recordset[0].CreatedAt.toISOString().split('T')[0] : null;
+
+    // Insert if the previousDate is greater than the mostRecentCreatedAt
+    if (mostRecentCreatedAt === null || previousDateString > mostRecentCreatedAt) {
+      console.log("Entering data");
+      const query = `
+        INSERT INTO ActualSinterRDI(ActualRDI, PredictedRDI, CreatedAt)
+        VALUES (@ActualRDI, @PredictedRDI, @CreatedAt)
+      `;
+
+      // Add parameters to the request
+      request.input('ActualRDI', sql.Decimal(9, 4), actualRDI); // Use sql.Decimal for decimal types
+      request.input('PredictedRDI', sql.Decimal(9, 4), predictedRDI); // Use sql.Decimal for decimal types
+      request.input('CreatedAt', sql.DateTime, previousDate); // Use sql.DateTime for datetime
+
+      await request.query(query);
+      console.log('Data successfully stored in ActualSinterRDI');
+    } else {
+      console.log('Data not inserted. The most recent CreatedAt is still current.');
+    }
+  } catch (error) {
+    console.error('Error storing data in ActualSinterRDI:', error);
+  }
+}
+
+
+async function fetchActualRDI() {
+  try {
+    // Connect to the PPMS database
+    const ppmsPool = await connectToPPMS();
+
+    // Execute the query to fetch the latest RDI value where RDI > 0
+    const result = await ppmsPool.execute(`
+      SELECT RDI
+      FROM ispat.VW_SIN2_QUALITY_PARAM
+      WHERE TRUNC(WORK_DATETIME) = TRUNC(SYSDATE)
+        AND RDI IS NOT NULL
+      ORDER BY WORK_DATETIME DESC
+      FETCH FIRST 1 ROWS ONLY
+    `);
+   
+    // Check if any rows were returned
+   
+      const PPMSRDI = result.rows[0]; // Access the first row of the result
+      return PPMSRDI;
+    
+  } catch (error) {
+    
+    console.error('Error fetching PPMS data:', error);
+   
+    return null;
+  }
+}
+
+
+cron.schedule('* * * * *', async () => {
+  try {
+    const todayDate = getTodayDate(); // Get today's date in YYYY-MM-DD format
+    
+    const actual_RDI = await fetchActualRDI(todayDate);
+    
+    const RDI=actual_RDI.RDI;
+    if(RDI>0)
+      {
+        const pred_RDI = await fetchPredictedRDI(todayDate);
+        console.log(RDI,pred_RDI);
+      // Combine the data from both sources
+        const combined_RDI = { RDI,pred_RDI };
+         console.log(combined_RDI,"Combined Data");
+        // Store the combined data in SinterRDI
+        await storeInActualRditable(combined_RDI);
+        console.log('Data fetched and updated successfully');
+
+      }
+      else{
+        console.log("Actual RDI value is not updated yet");
+      }
+     
+   
+  } catch (error) {
+    console.error('Error in scheduled task:', error);
+  }
+});
+
+
 
 
 
@@ -79,6 +246,7 @@ async function fetchPPMSData() {
       ORDER BY WORK_DATETIME DESC
       FETCH FIRST 1 ROWS ONLY
     `);
+  
 
     if (result.rows.length === 0) {
       throw new Error('No data found in PPMS.');
@@ -97,11 +265,11 @@ async function fetchPPMSData() {
       const request = sinterPool.request();
   
       const lastBallingIndexResult = await request.query(`
-          SELECT TOP 1 BallingIndex
-          FROM Sinter_RDI.dbo.SinterRDI
-          WHERE BallingIndex IS NOT NULL
-          ORDER BY CreatedAt DESC
-      `);
+        SELECT TOP 1 BallingIndex
+        FROM Sinter_RDI.dbo.SinterRDI
+        WHERE BallingIndex IS NOT NULL
+        ORDER BY CreatedAt DESC
+    `);
   
       if (lastBallingIndexResult.recordset.length > 0) { // Use recordset instead of rows
           // Assign the last fetched BallingIndex to ppmsData
@@ -118,13 +286,14 @@ async function fetchPPMSData() {
     for (const param of parametersToCheck) {
       if (ppmsData[param] === null) {
         const mappedColumn = fieldMapping[param]; // Get the mapped column name
-    
+        const sinterPool = await connectToSqlServer();
+        const request = sinterPool.request();
         const lastNonNullResult = await request.query(`
-          SELECT TOP 1 ${mappedColumn}
+         SELECT TOP 1 ${mappedColumn}
           FROM Sinter_RDI.dbo.SinterRDI
-          WHERE ${mappedColumn} IS NOT NULL AND WORK_DATETIME < :WORK_DATETIME
-          ORDER BY WORK_DATETIME DESC
-        `, { WORK_DATETIME: ppmsData.WORK_DATETIME });
+          WHERE ${mappedColumn} IS NOT NULL 
+          ORDER BY CreatedAt DESC
+        `);
     
         if (lastNonNullResult.recordset.length > 0) {
           ppmsData[param] = lastNonNullResult.recordset[0][mappedColumn]; // Set the value in ppmsData
@@ -132,7 +301,7 @@ async function fetchPPMSData() {
       }
     }
 
-    //console.log('Final PPMS Data:', ppmsData);
+    // console.log('Final PPMS Data:', ppmsData);
     return ppmsData;
 
   } catch (error) {
@@ -205,20 +374,6 @@ async function fetchDataFromPiWebAPI() {
 
 //Cron to fetch the data from PPMS and store it in sinter db
 
-// cron.schedule('0 */2 * * *', async () => {
-//   try {
-//     const ppmsData = await fetchPPMSData()
-//     const piVisionData=await fetchDataFromPiWebAPI();
-//   // Combine the data from both sources
-//     const combinedData = { ...ppmsData, ...piVisionData };
-//     console.log(combinedData);
-//     // Store the combined data in SinterRDI
-//     await storeDataInSinterRDI(combinedData);
-//     console.log('Data fetched and updated successfully');
-//   } catch (error) {
-//     console.error('Error in scheduled task:', error);
-//   }
-// });
 
 cron.schedule('* * * * *', async () => {
   try {
@@ -299,6 +454,7 @@ async function getLastSinterRDI() {
 }
 
 
+
 async function getLastUpdatedDate(){
   try{
     const sinterPool=await connectToSqlServer();
@@ -311,6 +467,49 @@ async function getLastUpdatedDate(){
     console.log('Error fetching last updated date');
   }
 }
+
+async function getAct_PredRDI(startDate,endDate){
+  try{
+    const sinterPool=await connectToSqlServer(); 
+       
+    const adjustedStartDate = new Date(new Date(startDate).getTime() + 5.5 * 60 * 60 * 1000); // Adjust the date to match the time zone difference
+    const adjustedEndDate = new Date(new Date(endDate).getTime() + 5.5 * 60 * 60 * 1000); // Adjust the date to match the time zone difference
+
+    // Set the start of the day and end of the day for the query
+    const startOfDay = new Date(adjustedStartDate.setUTCHours(0, 0, 0, 0));
+    const endOfDay = new Date(adjustedEndDate.setUTCHours(23, 59, 59, 999));
+    const result=await sinterPool.request()
+    .input('startOfDay', sql.DateTime, startOfDay)
+    .input('endOfDay', sql.DateTime, endOfDay)
+    .query(`SELECT ActualRDI,PredictedRDI,CreatedAt
+      FROM Sinter_RDI.dbo.ActualSinterRDI
+      WHERE CreatedAt >= @startOfDay AND CreatedAt < @endOfDay `);
+      
+      console.log(result);
+   
+    if (result.recordset.length === 0) {
+      // Return a special value or throw an error for no records found
+      return { status: 404, message: 'No RDI values found for the selected date.' };
+    }
+    console.log(result.recordset);
+
+    return { status: 200, data: result.recordset };
+  }catch(error)
+  {
+    console.error('Error while fetching the Actual and Predicted RDI values')
+  }
+}
+
+router.get('/getActRDI_PredRDI', async (req, res) => {
+  const { startDate, endDate } = req.query;
+
+  try {
+    const result = await getAct_PredRDI(startDate, endDate);
+    res.status(result.status).json(result.data || { message: result.message });
+  } catch (error) {
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
 
 async function getRDIValues(startDate, endDate) {
   try {
@@ -406,7 +605,7 @@ const transporter = nodemailer.createTransport({
   tls: {
     rejectUnauthorized: false
   },
-  connectionTimeout: 60000, // 60 seconds
+  connectionTimeout: 600000, // 60 seconds
   logger: true, // Enable logging
   debug: true // Enable debug output
 });
