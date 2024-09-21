@@ -26,6 +26,7 @@ const crypto = require('crypto');
 const utc = require('dayjs/plugin/utc');
 const dayjs = require('dayjs');
 const timezone = require('dayjs/plugin/timezone');
+const { start } = require('repl');
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -115,6 +116,7 @@ async function fetchPredictedRDI(date) {
     throw error; // Re-throw the error to handle it upstream
   }
 }
+
 
 
 
@@ -514,7 +516,7 @@ router.get('/getActRDI_PredRDI', async (req, res) => {
 async function getRDIValues(startDate, endDate) {
   try {
     const sinterPool = await connectToSqlServer();
-
+    console.log(startDate);
     const adjustedStartDate = new Date(new Date(startDate).getTime() + 5.5 * 60 * 60 * 1000); // Adjust the date to match the time zone difference
     const adjustedEndDate = new Date(new Date(endDate).getTime() + 5.5 * 60 * 60 * 1000); // Adjust the date to match the time zone difference
 
@@ -637,36 +639,31 @@ router.get('/', (req, res) => {
 });
 
 // Fetch data from the last 24 hours and convert to CSV
-const fetchDataAndConvertToCSV = async () => {
+async function fetchDataAndConvertToCSV (startDate,endDate) {
   try {
     
     const sinterPool = await connectToSqlServer(); // Connect to the Sinter RDI database
       // Define your local time zone, e.g., 'Asia/Kolkata' for IST
-      const localTimeZone = 'Asia/Kolkata';
-
-      // Get current time in local time zone and convert to UTC
-      const localNow = dayjs().tz(localTimeZone).format('YYYY-MM-DDTHH:mm:ss');
-      const utcNow = dayjs(localNow).utc().format('YYYY-MM-DDTHH:mm:ss');
-          // Calculate the start and end of today in local time
-     const startOfToday = dayjs().tz(localTimeZone).startOf('day');
-    const endOfToday = dayjs().tz(localTimeZone).endOf('day');
+     
   
-       // Calculate the start of the previous day
-       const startOfPreviousDay = startOfToday.subtract(1, 'day');
-        
-       // Convert these to UTC
-       const startOfTodayUTC = startOfToday.utc().format('YYYY-MM-DDTHH:mm:ss');
-       const endOfTodayUTC = endOfToday.utc().format('YYYY-MM-DDTHH:mm:ss');
-       const startOfPreviousDayUTC = startOfPreviousDay.utc().format('YYYY-MM-DDTHH:mm:ss');
+      const adjustedStartDate = new Date(new Date(startDate).getTime() + 5.5 * 60 * 60 * 1000); // Adjust the date to match the time zone difference
+      const adjustedEndDate = new Date(new Date(endDate).getTime() + 5.5 * 60 * 60 * 1000); // Adjust the date to match the time zone difference
+  
+      // Set the start of the day and end of the day for the query
+      const startOfDay = new Date(adjustedStartDate.setUTCHours(0, 0, 0, 0));
+      const endOfDay = new Date(adjustedEndDate.setUTCHours(23, 59, 59, 999));
+  
 
        // Query to get data from the last 24 hours based on UTC time
-       const result = await sinterPool.request().query(`
-           SELECT *
-           FROM SinterRDI
-           WHERE CreatedAt >= '${startOfPreviousDayUTC}' 
-             AND CreatedAt <= '${endOfTodayUTC}'
+       const result = await sinterPool.request()
+       .input('startOfDay', sql.DateTime, startOfDay)
+       .input('endOfDay', sql.DateTime, endOfDay)
+       .query(`
+         SELECT *
+         FROM SinterRDI
+         WHERE CreatedAt >= @startOfDay AND CreatedAt < @endOfDay
        `);
-
+       
     //For testing with the dev data to mail check
     // const result=await sinterPool.request().query(
     //   `SELECT *
@@ -685,14 +682,27 @@ const fetchDataAndConvertToCSV = async () => {
   }
 };
 
-// Route to download CSV file
 router.get('/download', async (req, res) => {
   try {
-    const csv = await fetchDataAndConvertToCSV();
+    const { start, end } = req.query; // Ensure you match the parameter names used in Axios
+
+    // Log the received dates for debugging
+    console.log("Received dates:", start, end);
+
+    // Validate dates if necessary
+    if (!start || !end) {
+      return res.status(400).json({ error: 'Start and end dates are required' });
+    }
+
+    // Fetch and convert data to CSV
+    const csv = await fetchDataAndConvertToCSV(start, end);
+    
+    // Set headers for CSV file download
     res.header('Content-Type', 'text/csv');
     res.attachment('previous_results.csv');
     res.send(csv);
   } catch (error) {
+    console.error('Error fetching data:', error);
     res.status(500).json({ error: 'Failed to fetch data' });
   }
 });
