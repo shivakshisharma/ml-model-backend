@@ -314,6 +314,65 @@ async function fetchPPMSData() {
 
 
 //Fetch PI vision Data using the PI Web Api where time==WORK_DATETIME date.now()==WORKDATETIME fetch from pivision 
+async function fetchRealTimeFromPiWebAPI() {
+  const names = ['FCTemp', 'BTP', 'MainFanSpeedRPM', 'MCSpeed'];
+  const webIds = [
+    "F1AbEN7eKxJfieEajjsXzDckv6AJOH1_iD06xGSGpQYgnoTMg7g9XFQzySE2HutOcmIIDjgSlNXU0wtRE9MLVBJLUFGXFdFQkFQSVxKU1dcU0lQfEFWR0ZDVEVNUA",  // Avg Furnace Temp
+    "F1AbEN7eKxJfieEajjsXzDckv6AJOH1_iD06xGSGpQYgnoTMgUFsw6Np1O02Yerqy6C0r5wSlNXU0wtRE9MLVBJLUFGXFdFQkFQSVxKU1dcU0lQfEFDR0JUUA",   // Avg BTP
+    "F1AbEN7eKxJfieEajjsXzDckv6AJOH1_iD06xGSGpQYgnoTMgJslMk2G4yEmmCyxS-HFM5ASlNXU0wtRE9MLVBJLUFGXFdFQkFQSVxKU1dcU0lQfE1BSU5GQU5TUEVFRFJQTQ", // Main Fan Speed RPM
+    "F1AbEN7eKxJfieEajjsXzDckv6AJOH1_iD06xGSGpQYgnoTMgZsagC0QwJEaTLusxERYyIQSlNXU0wtRE9MLVBJLUFGXFdFQkFQSVxKU1dcU0lQfE1DU1BFRURN"   // Machine Speed
+  ];
+
+  const username = "pi_developer1";
+  const password = "Jsw@2020";
+  const credentials = Buffer.from(`${username}:${password}`).toString('base64');
+
+  // Disable SSL certificate verification (NOT recommended for production)
+  const agent = new https.Agent({
+    rejectUnauthorized: false
+  });
+
+  const fetchDataForWebId = async (webId) => {
+   
+  
+    const url = `https://jswsl-dol-pi-af.jsw.in/piwebapi/streams/${webId}/value`;
+
+    try {
+      const response = await axios.get(url, {
+        httpsAgent: agent,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Basic ${credentials}`
+        }
+      });
+      return response.data.Value;  // Adjust this based on the actual response structure
+    } catch (error) {
+      console.error('Error fetching data:', error.message);
+      if (error.response) {
+        console.error('Response status:', error.response.status);
+        console.error('Response data:', error.response.data);
+      }
+      return null;
+    }
+  };
+
+  try {
+    const promises = webIds.map(webId => fetchDataForWebId(webId));
+    const values = await Promise.all(promises);
+    
+    // Constructing the final object
+    const result = {};
+    names.forEach((name, index) => {
+      result[name] = values[index];
+    });
+
+   
+    return result;
+  } catch (error) {
+    console.error('Error in fetchDataFromPiWebAPI:', error.message);
+  }
+}
+
 async function fetchDataFromPiWebAPI() {
   const names = ['FCTemp', 'BTP', 'MainFanSpeedRPM', 'MCSpeed'];
   const webIds = [
@@ -333,7 +392,10 @@ async function fetchDataFromPiWebAPI() {
   });
 
   const fetchDataForWebId = async (webId) => {
-    const url = `https://jswsl-dol-pi-af.jsw.in/piwebapi/streams/${webId}/value`;
+    const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
+    const timestamp = fourHoursAgo.toISOString(); // Format as YYYY-MM-DDTHH:mm:ssZ
+   
+    const url = `https://jswsl-dol-pi-af.jsw.in/piwebapi/streams/${webId}/value?time=${timestamp}`;
 
     try {
       const response = await axios.get(url, {
@@ -386,7 +448,8 @@ cron.schedule('* * * * *', async () => {
     // console.log(combinedData);
     // Store the combined data in SinterRDI
     await storeDataInSinterRDI(combinedData);
-    console.log('Data fetched and updated successfully');
+    await predict();
+    console.log('Data fetched,updated and predicted successfully');
   } catch (error) {
     console.error('Error in scheduled task:', error);
   }
@@ -487,13 +550,13 @@ async function getAct_PredRDI(startDate,endDate){
       FROM Sinter_RDI.dbo.ActualSinterRDI
       WHERE CreatedAt >= @startOfDay AND CreatedAt < @endOfDay `);
       
-      console.log(result);
+     
    
     if (result.recordset.length === 0) {
       // Return a special value or throw an error for no records found
       return { status: 404, message: 'No RDI values found for the selected date.' };
     }
-    console.log(result.recordset);
+    
 
     return { status: 200, data: result.recordset };
   }catch(error)
@@ -516,7 +579,7 @@ router.get('/getActRDI_PredRDI', async (req, res) => {
 async function getRDIValues(startDate, endDate) {
   try {
     const sinterPool = await connectToSqlServer();
-    console.log(startDate);
+  
     const adjustedStartDate = new Date(new Date(startDate).getTime() + 5.5 * 60 * 60 * 1000); // Adjust the date to match the time zone difference
     const adjustedEndDate = new Date(new Date(endDate).getTime() + 5.5 * 60 * 60 * 1000); // Adjust the date to match the time zone difference
 
@@ -583,7 +646,7 @@ router.get('/realtime-data', async (req, res) => {
 
 router.get('/specific-realtime-data',async(req,res)=>{
   try{
-    const data=await fetchDataFromPiWebAPI();
+    const data=await fetchRealTimeFromPiWebAPI();
     res.json(data);
     // console.log(data,"PI data");
 
@@ -687,7 +750,6 @@ router.get('/download', async (req, res) => {
     const { start, end } = req.query; // Ensure you match the parameter names used in Axios
 
     // Log the received dates for debugging
-    console.log("Received dates:", start, end);
 
     // Validate dates if necessary
     if (!start || !end) {
@@ -785,7 +847,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 router.post('/predict-manual', async (req, res) => {
   try {
     // Extract features from the request body
-    console.log(req.body);
+    
     const features = req.body.features; // Extract features from the request body
    
 
@@ -841,17 +903,17 @@ router.post('/predict-manual', async (req, res) => {
 });
 
 // Prediction endpoint
-router.post('/predict', async (req, res) => {
+async function predict() {
   try {
     // Fetch the latest row from the database based on Timestamp
-    const sinterPool = await connectToSqlServer(); // Connect to the Sinter RDI database
-      const result = await sinterPool.request().query(`
+    const sinterPool = await connectToSqlServer();
+    const result = await sinterPool.request().query(`
       SELECT TOP 1 *
       FROM SinterRDI
       ORDER BY CreatedAt DESC
     `);
     const latestData = result.recordset[0];
-   
+
     // Extract features for prediction
     const features = [
       latestData['Size5mm'],
@@ -870,81 +932,66 @@ router.post('/predict', async (req, res) => {
       latestData['BallingIndex'],
       latestData['FCTemp'],
       latestData['MCSpeed'],
-      
-
     ];
 
     // Spawn a child process to run the Python script
-    // console.log(JSON.stringify(features));
-    
     const pythonProcess = spawn('python', ['/Sinter RDI project files/ml-model-backend/scripts/predict.py', JSON.stringify(features)]);
 
-  
-    
-     
     let dataString = '';
 
     pythonProcess.stdout.on('data', (data) => {
       dataString += data.toString();
-      pythonProcess.stderr.on('data', (data) => {
-        console.error(`stderr: ${data}`);
-      });
-
-      
-       
-      
     });
 
     pythonProcess.stderr.on('data', (data) => {
       console.error(`stderr: ${data}`);
     });
 
-    pythonProcess.on('close', async (code) => {
-      if (code !== 0) {
-        
-        res.status(500).json({ error: 'Error in Python script execution.' });
-        return;
-      }
-
-      try {
-       
-
-        const prediction = JSON.parse(dataString);
-        console.log('Raw prediction:', prediction);
-
-        // Extract the prediction value from the object
-        const predictionValue = prediction.prediction;
-        console.log('Parsed prediction value:', predictionValue);
-
-        if (isNaN(predictionValue)) {
-          throw new Error(`Prediction value is not a number: ${predictionValue}`);
+    return new Promise((resolve, reject) => {
+      pythonProcess.on('close', async (code) => {
+        if (code !== 0) {
+          return reject(new Error('Error in Python script execution.'));
         }
-        
 
-        // Update the latest row with the predicted RDI value
-        const updateQuery = `
-          UPDATE SinterRDI
-          SET RDIValue = @RDIValue
-          WHERE CreatedAt = @CreatedAt
-        `;
+        try {
+          const prediction = JSON.parse(dataString);
+          const predictionValue = prediction.prediction;
 
-        const request = sinterPool.request();
-        request.input('RDIValue', sql.Decimal(9, 4), parseFloat(predictionValue)); // Ensure the type matches your database column
-        request.input('CreatedAt', sql.DateTime, latestData.CreatedAt);
+          if (isNaN(predictionValue)) {
+            throw new Error(`Prediction value is not a number: ${predictionValue}`);
+          }
 
-        await request.query(updateQuery);
+          // Update the latest row with the predicted RDI value
+          const updateQuery = `
+            UPDATE SinterRDI
+            SET RDIValue = @RDIValue
+            WHERE CreatedAt = @CreatedAt
+          `;
 
-        res.status(200).json({ prediction: parseFloat(predictionValue) });
-      } catch (error) {
-        console.error('Error updating prediction in database:', error);
-        res.status(500).json({ error: 'Failed to update prediction in database.' });
-      }
+          const request = sinterPool.request();
+          request.input('RDIValue', sql.Decimal(9, 4), parseFloat(predictionValue));
+          request.input('CreatedAt', sql.DateTime, latestData.CreatedAt);
+
+          await request.query(updateQuery);
+
+          resolve(parseFloat(predictionValue));
+        } catch (error) {
+          reject(new Error('Failed to update prediction in database: ' + error.message));
+        }
+      });
     });
-  } 
+  } catch (error) {
+    throw new Error('Failed to fetch latest data: ' + error.message);
+  }
+}
 
-  catch (error) {
-    console.error('Error fetching latest data:', error);
-    res.status(500).json({ error: 'Failed to fetch latest data.' });
+router.post('/predict', async (req, res) => {
+  try {
+    const predictionValue = await predict();
+    res.status(200).json({ prediction: predictionValue });
+  } catch (error) {
+    console.error('Error in prediction:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
